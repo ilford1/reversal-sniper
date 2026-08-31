@@ -188,19 +188,26 @@ function updateActiveLevels(bar) {                     // call EVERY bar (intrab
 Seven boolean components each contribute to a score:
 `tape` (Z-score spike ≥ threshold on trade counts over a 100-bar window), `divergence`
 (higher extreme with weaker peak delta), `absorption` (heavy tape into small-range bar
-that closes back inside body), `oi` (OI grew ≤ threshold% across impulse), `liq`
-(liquidation flush in top Nth percentile over trailing 200 bars), `wick` (rejection wick
-≥ 28% of range), `level` (prior impulse extreme within N ticks).
+that closes back inside body), `oi` (OI net change ≤ threshold **and** OI peaked before
+the extreme then rolled over), `liq` (liquidation flush episode in top Nth percentile
+over trailing 200 bars, with a forced-flow share and directional dominance), `wick`
+(rejection wick ≥ 28% of range), `level` (prior impulse extreme within N ticks).
 
-- **Anti-double-count:** tape and absorption read the SAME trade-count burst
-  (absorption requires tape Z ≥ 1.5 from the same window), so they share ONE vote —
-  every point in the score is an independent fact. `lastMaxScore` (also the alert's
-  `max_score`) is the honest denominator: enabled+available components minus 1 when
-  both tape and absorption are on.
+- **Anti-double-count:** every enabled component reads a DIFFERENT fact, so each
+  contributes ONE independent vote. Tape reads participation frequency (trade-count
+  burst, `Z ≥ activeTapeZ` + spike isolation + counter-side count flip); absorption
+  reads SIZE and neutrality (total-volume activity floor `Z ≥ activeAbsorptionVolZ`,
+  counter-side volume elevation `Z ≥ activeAbsorptionCounterZ`, |delta|/vol ≤ 0.25);
+  OI reads positioning (normalized net change + fuel rollover); liq reads forced-flow
+  (episode percentile + volume share + directional dominance).
+  Since tape is count-based and absorption is volume-based, they no longer share a
+  vote. `lastMaxScore` (also the alert's `max_score`) is the honest denominator:
+  count of enabled + available components.
 - **Cluster gating:** ≥1 Flow component **and** ≥1 Positioning component must pass
   (not just a high total score).
 - **Fresh-money veto:** `oiGrowthVeto(impulse)` — if OI grew ≥ `activeOiVetoPct`
-  (5 Balanced / 3 Strict / 7 Aggressive) across the impulse, the signal is suppressed
+  (5 Balanced / 3 Strict / 7 Aggressive) at ANY point across the impulse (peak-based,
+  so mid-impulse surges that later retrace are still caught), the signal is suppressed
   regardless of score: new fuel added in the impulse direction is counter-evidence to
   a reversal.
 - **Degradation:** a component whose feed is unavailable is treated as disabled —
@@ -236,12 +243,14 @@ session CVD pane.
 Re-uses the DCP core math (copied) + adds confluence scoring.
 
 - **Tabs:** Sniper (strictness: Balanced / Strict / Aggressive / Custom + custom
-  thresholds), Feeds (flow: tape/divergence/absorption; positioning: OI/liq; bonus:
+  thresholds; core preset: Automatic / Scalp 1m / Scalp 5m / Custom + custom
+  lookback/delta period/adaptation speed/neutral exit ratio), Feeds (flow:
+  tape/divergence/absorption; positioning: OI/liq; bonus:
   wick/prior level), Display (marker colors/size, pane dashboard sections + colors),
   Alerts.
 - **Outputs:** square markers at confirmed extremes (`forceOverlay`), full pane
   dashboard (delta pressure histogram vs entry/exit bands, state line ±100, score as
-  % of the honest max (6 when tape+absorption are both on), per-component 0/100 bars).
+  % of the honest max (7 when all components are on), per-component 0/100 bars).
 - **Realtime:** potential-extreme path — the forming bar extends the impulse's
   extreme → marker prints **immediately at the current bar**, no reload; the state-flip
   fallback catches established-level reversals mid-bar. No `bar − 2` wait live and no
@@ -252,10 +261,10 @@ Re-uses the DCP core math (copied) + adds confluence scoring.
 - **Alert:** `reversal.sniper` with `{ direction, price, score, max_score, components, impulse_bars, peak_delta_ratio }`.
 
 **Relationship:** Reversal Sniper's core math is a frozen copy of Delta Candle Pressure's
-`activeLookback = 240`, `sensitivity = 100`, `deltaPeriod = 12`, `neutralExitRatio = 0.65`,
-`minImpulseClimax = 0.75`. The base indicator has presets; the sniper does not re-export
-those, it just uses the Automatic defaults. If you change the base's math, port the change
-to `Reversal Sniper.js` too (or refactor into a shared module).
+(`sensitivity = 100`, plus preset-dependent `activeLookback`/`deltaPeriod`/`adaptationSpeed`/
+`neutralExitRatio`/`minImpulseClimax`). It re-exports the base indicator's core presets
+(Automatic / Scalp 1m / Scalp 5m / Custom) as its own "Core preset" selector. If you change
+the base's math, port the change to `Reversal Sniper.js` too (or refactor into a shared module).
 
 ### `Tape Pulse.js` → Extreme Decay (signal indicator)
 A second signal indicator over the same frozen DCP core: scores **exhaustion** (climax

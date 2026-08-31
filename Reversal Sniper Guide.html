@@ -46,7 +46,7 @@ counter-trend reversal zones at climax points.</p>
   <li><strong>Delta pressure</strong> histogram — rolling delta as % of adaptive scale, green/red while an impulse state is active, dim when neutral.</li>
   <li><strong>Entry</strong> (dashed) / <strong>Exit</strong> (dotted) hysteresis bands.</li>
   <li><strong>State</strong> line — current state machine value (±100) in the same green/red/neutral colors.</li>
-  <li><strong>Score</strong> histogram — most recent impulse evaluation score as % of the honest max (6 when tape + absorption are both on; purple, persists between setups).</li>
+  <li><strong>Score</strong> histogram — most recent impulse evaluation score as % of the honest max (7 when every component is on and its feed is present; purple, persists between setups).</li>
   <li><strong>Component status</strong> bars — Tape, Divergence, Absorption, OI, Liq, Wick, Level (each 0/100, persists between evaluations).</li>
 </ul>
 <ol start="3">
@@ -54,15 +54,16 @@ counter-trend reversal zones at climax points.</p>
 </ol>
 <h3>Inputs — 4 tabs</h3>
 <table>
-  <tr><th>Tab</th><th>Setting</th><th>What it does</th></tr>
-  <tr><td rowspan="2"><strong>Sniper</strong></td><td>Strictness</td><td>Preset that tunes the whole system: <em>Balanced</em> (default), <em>Strict</em> (fewer, higher-conviction), <em>Aggressive</em> (more signals), <em>Custom</em> (exposes every threshold below).</td></tr>
-  <tr><td>Custom thresholds</td><td>Minimum score (1–7), tape Z-score, OI max change %, OI growth veto %, liquidation percentile, min impulse length, cooldown bars, level tolerance ticks.</td></tr>
-  <tr><td rowspan="3"><strong>Feeds</strong></td><td>Flow cluster</td><td>Tape speed spike, delta divergence, absorption — at least one must fire for a signal. Tape and absorption share a single score point (both read the same trade-count burst).</td></tr>
-  <tr><td>Positioning cluster</td><td>Open interest non-confirmation, liquidation flush — at least one must fire for a signal.</td></tr>
-  <tr><td>Bonus</td><td>Rejection wick, prior level confluence — add score points, not required.</td></tr>
-  <tr><td rowspan="2"><strong>Display</strong></td><td>Marker colors / size</td><td><span class="bull">Green</span> at bearish-impulse lows (bullish reversal), <span class="bear">red</span> at bullish-impulse highs (bearish reversal).</td></tr>
-  <tr><td>Pane display</td><td>Master dashboard toggle, section toggles (pressure histogram + bands, signal status, component bars) and custom colors for every pane series (entry/exit bands, zero line, state, score, and each of the 7 component bars).</td></tr>
-  <tr><td><strong>Alerts</strong></td><td>Enable alerts</td><td>Fires only on realtime bars with direction, price, score, max score, triggered components, impulse bars and peak delta ratio.</td></tr>
+  <tr><th>Tab</th><th>Setting</th><th>What it does</th><th>For non‑math guy</th></tr>
+  <tr><td rowspan="3"><strong>Sniper</strong></td><td>Strictness</td><td>Preset that tunes the whole system: <em>Balanced</em> (default), <em>Strict</em> (fewer, higher-conviction), <em>Aggressive</em> (more signals), <em>Custom</em> (exposes every threshold below).</td><td>How picky the indicator is. <em>Balanced</em> is a good starting point for most charts.</td></tr>
+  <tr><td>Core preset</td><td>Tunes the ported delta-pressure core (state machine, impulse detection) to the chart timeframe: <em>Automatic</em> (default, 5m-leaning), <em>Scalp 1m</em> (faster, shorter lookback, lower neutral exit), <em>Scalp 5m</em> (standard), <em>Custom</em> (exposes adaptation period, delta period, adaptation speed, neutral exit ratio).</td><td>Matches the engine to your chart speed. 1m charts need faster settings than 5m charts.</td></tr>
+  <tr><td>Custom thresholds</td><td>Minimum score (1–7), tape Z-score, counter-side count Z-score, spike isolation factor, OI net-change Z-score, OI waning factor, OI growth veto %, liquidation percentile, liquidation window, liquidation volume share, liquidation direction min, absorption counter-side vol Z-score, absorption total-volume Z-score, divergence weakness factor, divergence waning factor, divergence baseline legs, min impulse length, cooldown bars, level tolerance ticks.</td><td>Fine-tune every number by hand. Only appears when Strictness is set to <em>Custom</em>.</td></tr>
+  <tr><td rowspan="3"><strong>Feeds</strong></td><td>Flow cluster</td><td>Tape speed spike, delta divergence, absorption — at least one must fire for a signal. Each component reads a different fact (count burst, delta structure, volume neutrality), so every trigger earns its own vote.</td><td>Checks that the move is really happening — order flow, not just price drift.</td></tr>
+  <tr><td>Positioning cluster</td><td>Open interest non-confirmation, liquidation flush — at least one must fire for a signal.</td><td>Checks that big money is on the other side of the reversal.</td></tr>
+  <tr><td>Bonus</td><td>Rejection wick, prior level confluence — add score points, not required.</td><td>Extra confidence boosters — nice to have but not required.</td></tr>
+  <tr><td rowspan="2"><strong>Display</strong></td><td>Marker colors / size</td><td><span class="bull">Green</span> at bearish-impulse lows (bullish reversal), <span class="bear">red</span> at bullish-impulse highs (bearish reversal).</td><td>Pick colours that pop on your chart.</td></tr>
+  <tr><td>Pane display</td><td>Master dashboard toggle, section toggles (pressure histogram + bands, signal status, component bars) and custom colors for every pane series (entry/exit bands, zero line, state, score, and each of the 7 component bars).</td><td>Choose what you see in the indicator pane and what colour everything is.</td></tr>
+  <tr><td><strong>Alerts</strong></td><td>Enable alerts</td><td>Fires only on realtime bars with direction, price, score, max score, triggered components, impulse bars and peak delta ratio.</td><td>Turn alerts on or off.</td></tr>
 </table>
 
 <h3>Reading a signal</h3>
@@ -79,29 +80,30 @@ your automation and only act on signals containing the components you trust most
 
 <h3>Step 1 — Delta pressure core (ported from Delta Candle Pressure)</h3>
 <ol>
-  <li><strong>Rolling delta</strong> — a 12-bar rolling sum of buy/sell volume delta; the raw "who is in control" measure.</li>
-  <li><strong>Adaptive scale</strong> — each bar's expected delta magnitude is estimated from the trailing 240 bars: a natural split found via <strong>Otsu thresholding</strong> (separating normal noise from bursts) clamped between percentile rails (68th–88th), then smoothed with an asymmetric EMA (fast up, slow down) so the scale keeps up with expansions but doesn't crash on quiet periods.</li>
-  <li><strong>State machine</strong> — rolling delta vs. adaptive entry/exit thresholds produces a trinary state (+1 bull / 0 neutral / −1 bear) with hysteresis: you need a big move to enter a state, a small move to leave it.</li>
-  <li><strong>Confirmed / potential impulse</strong> — for backfill, a state flip (e.g. +1 → 0/−1) two bars later confirms the impulse is over; <strong>in realtime</strong> the marker fires the moment the forming bar pushes a new extreme inside an active impulse (or, at an established level, the moment the state exits mid-bar) — no waiting for confirmation. The impulse's start is walked back through the state run, its <strong>peak delta</strong> must exceed 75% of the adaptive scale (a genuine climax, not noise), and the extreme price is the highest high / lowest low of the run.</li>
+  <li><strong>Rolling delta</strong> — a rolling sum of buy/sell volume delta over the core preset's delta period (Automatic/Scalp 5m: 12 bars, Scalp 1m: 10); the raw "who is in control" measure.</li>
+  <li><strong>Adaptive scale</strong> — each bar's expected delta magnitude is estimated from the core preset's lookback window (Automatic/Scalp 5m: 240 bars, Scalp 1m: 120): a natural split found via <strong>Otsu thresholding</strong> (separating normal noise from bursts) clamped between percentile rails (68th–88th), then smoothed with an asymmetric EMA (fast up, slow down) so the scale keeps up with expansions but doesn't crash on quiet periods.</li>
+  <li><strong>State machine</strong> — rolling delta vs. adaptive entry/exit thresholds produces a trinary state (+1 bull / 0 neutral / −1 bear) with hysteresis: you need a big move to enter a state, a small move to leave it. The neutral-exit band (what fraction of the entry you must fall below to exit) is set by the core preset (0.65 Automatic, 0.55 Scalp 1m, 0.65 Scalp 5m).</li>
+  <li><strong>Confirmed / potential impulse</strong> — for backfill, a state flip (e.g. +1 → 0/−1) two bars later confirms the impulse is over; <strong>in realtime</strong> the marker fires the moment the forming bar pushes a new extreme inside an active impulse (or, at an established level, the moment the state exits mid-bar) — no waiting for confirmation. The impulse's start is walked back through the state run, its <strong>peak delta</strong> must exceed the core preset's climax ratio of the adaptive scale (75% Automatic/Scalp 1m, 85% Scalp 5m — a genuine climax, not noise), and the extreme price is the highest high / lowest low of the run.</li>
 </ol>
 
 <h3>Step 2 — Confluence scoring</h3>
 <p>Each confirmed extreme is scored against seven components (each +1):</p>
 <table>
-  <tr><th>Component</th><th>Checks</th><th>Why it matters</th></tr>
-  <tr><td>Tape speed spike</td><td>Trade count at the extreme is ≥ N standard deviations above its 100-bar mean (Z-score).</td><td>Climaxes come with a burst of executions — activity spike confirms the extreme is "real", not drift.</td></tr>
-  <tr><td>Delta divergence</td><td>Price made a higher extreme, but the impulse's peak delta is &lt; 90% of the previous same-direction impulse's peak.</td><td>Weakening buyer/seller conviction at a new extreme = classic divergence, the fuel is running out.</td></tr>
-  <tr><td>Absorption</td><td>Heavy tape (Z ≥ 1.5) into a small-range bar that closes back inside the body (rejection).</td><td>Big volume that fails to make progress means the opposite side is absorbing the flow.</td></tr>
-  <tr><td>OI non-confirmation</td><td>Open interest grew ≤ threshold% across the impulse (and impulse is ≥ 5 bars, to avoid squeeze-noise).</td><td>A reversal with fresh fuel needs new OI. Stagnant/falling OI into the extreme = the move was driven by closing, not new positioning — trend often reverses.</td></tr>
-  <tr><td>Liquidation flush</td><td>Forced buys at a top / forced sells at a bottom rank in the top 95th percentile of the trailing 200 bars.</td><td>Cascade liquidations mark the final capitulation that exhausts the prevailing side — the classic "flush then flip".</td></tr>
-  <tr><td>Rejection wick</td><td>The extreme bar's wick (upper at tops, lower at bottoms) is ≥ 28% of the bar range.</td><td>Wicks are the footprint of rejected limit orders — the market tried to push further and got thrown back.</td></tr>
-  <tr><td>Prior level confluence</td><td>Extreme price sits within N ticks of a previous impulse extreme.</td><td>Re-tests of prior reaction zones are where reversals repeat; confluence compounds conviction.</td></tr>
+  <tr><th>Component</th><th>Checks</th><th>Why it matters</th><th>For non‑math guy</th></tr>
+  <tr><td>Tape speed spike</td><td>Trade count at the extreme is ≥ N standard deviations above its 100-bar mean (Z-score).</td><td>Climaxes come with a burst of executions — activity spike confirms the extreme is "real", not drift.</td><td>A sudden burst of trades — confirms the move is real, not just a slow drift.</td></tr>
+  <tr><td>Delta divergence</td><td>Price made a higher extreme, but the impulse's peak delta is &lt; 92% of the previous same-direction impulse's peak.</td><td>Weakening buyer/seller conviction at a new extreme = classic divergence, the fuel is running out.</td><td>The engine is losing power even though the price went further — the trend is running on fumes.</td></tr>
+  <tr><td>Absorption</td><td>Heavy total-volume activity (Z ≥ 1.5) plus elevated counter-side volume (Z ≥ 1.0), with neutral delta (|Δ|/vol ≤ 0.25) and a compact range (≤ 70% of median) that closes back inside the body.</td><td>Big volume that fails to make progress means the opposite side is absorbing the flow.</td><td>Big volume that couldn't push the price — the other side is eating it all up.</td></tr>
+  <tr><td>OI non-confirmation</td><td>Open interest grew ≤ threshold% across the impulse (and impulse is ≥ 5 bars, to avoid squeeze-noise).</td><td>A reversal with fresh fuel needs new OI. Stagnant/falling OI into the extreme = the move was driven by closing, not new positioning — trend often reverses.</td><td>No new money backed the move — the trend is running on fumes, not fresh fuel.</td></tr>
+  <tr><td>Liquidation flush</td><td>Forced buys at a top / forced sells at a bottom rank in the top 95th percentile of the trailing 200 bars.</td><td>Cascade liquidations mark the final capitulation that exhausts the prevailing side — the classic "flush then flip".</td><td>Forced exits flooded the market — the last capitulation before the reversal.</td></tr>
+  <tr><td>Rejection wick</td><td>The extreme bar's wick (upper at tops, lower at bottoms) is ≥ 28% of the bar range.</td><td>Wicks are the footprint of rejected limit orders — the market tried to push further and got thrown back.</td><td>The market tried to push further and got rejected — a strong "no" from the other side.</td></tr>
+  <tr><td>Prior level confluence</td><td>Extreme price sits within N ticks of a previous impulse extreme.</td><td>Re-tests of prior reaction zones are where reversals repeat; confluence compounds conviction.</td><td>The price hit a zone that reversed before — history is repeating.</td></tr>
 </table>
 
-<p><strong>Honest counting:</strong> tape and absorption read the <em>same</em> trade-count
-burst (absorption requires tape Z ≥ 1.5 from the same 100-bar window), so they share a
-single score point — the score counts independent facts (max 6 when both are on), while
-the component bars still show every raw trigger.
+<p><strong>Honest counting:</strong> each component reads a <em>different</em> fact — tape reads
+participation frequency (trade-count burst), absorption reads size and neutrality (volume
+Z-scores + |Δ|/vol + range) — so they no longer share a score point. The score counts every
+enabled component whose feed is present (max 7), while the component bars show each raw
+trigger.
 <strong>Fresh-money veto:</strong> if open interest <em>grew</em> strongly across the
 impulse (≥ the OI growth veto %, default 5% — 3% on Strict, 7% on Aggressive), the signal
 is suppressed regardless of score: new fuel added in the impulse direction argues against
@@ -127,7 +129,7 @@ an imminent reversal.</p>
 <div class="warn"><strong>Preset tuning advice:</strong> start on <em>Balanced</em>. If signals feel
 noisy on your timeframe, move to <em>Strict</em>; if too rare, <em>Aggressive</em>.
 Then fine-tune with <em>Custom</em> — the two most impactful knobs are the tape
-Z-score (activity threshold) and OI max change % (fuel threshold).</div>
+Z-score (activity threshold) and OI net-change Z-score (fuel threshold).</div>
 
 <p style="margin-top: 40px; color: #8b949e; font-size: 0.85rem;">
 MMT indicator script · Source: <code>Reversal Sniper.js</code> · Companion base indicator: <code>Delta Candle Pressure.js</code>

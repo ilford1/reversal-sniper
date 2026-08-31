@@ -23,12 +23,16 @@ const customMinScore = input.int("Minimum score", 3, {
   key: "min_score", min: 1, max: 7,
   onlyIf: input.when("strictness", "Custom")
 })
-const customTapeZ = input.float("Tape speed Z-score", 2.0, {
+const customTapeZ = input.float("Tape speed Z-score", 1.8, {
   key: "tape_z", min: 0.5, max: 5.0,
   onlyIf: input.when("strictness", "Custom")
 })
-const customOiThreshold = input.float("OI max change %", 0.5, {
-  key: "oi_threshold", min: 0.1, max: 5.0,
+const customOiZ = input.float("OI net-change Z-score", 0.5, {
+  key: "oi_z", min: -2.0, max: 3.0,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customOiWaning = input.float("OI waning factor", 1.0, {
+  key: "oi_waning", min: 0.9, max: 1.0,
   onlyIf: input.when("strictness", "Custom")
 })
 const customOiVetoPct = input.float("OI growth veto %", 5.0, {
@@ -37,6 +41,18 @@ const customOiVetoPct = input.float("OI growth veto %", 5.0, {
 })
 const customLiqPercentile = input.int("Liquidation percentile", 95, {
   key: "liq_percentile", min: 80, max: 100,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customLiqWindow = input.int("Liquidation window bars", 2, {
+  key: "liq_window", min: 1, max: 5,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customLiqVolumeShare = input.float("Liquidation volume share", 0.02, {
+  key: "liq_volume_share", min: 0.005, max: 0.25,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customLiqDirection = input.float("Liquidation direction min", 0.50, {
+  key: "liq_direction", min: 0.35, max: 0.80,
   onlyIf: input.when("strictness", "Custom")
 })
 const customImpulseLength = input.int("Min impulse length", 2, {
@@ -50,6 +66,63 @@ const customCooldown = input.int("Cooldown bars", 10, {
 const customLevelTolerance = input.int("Level tolerance ticks", 10, {
   key: "level_tolerance", min: 1, max: 100,
   onlyIf: input.when("strictness", "Custom")
+})
+const customFlipZ = input.float("Counter-side count Z-score", 1.2, {
+  key: "flip_z", min: 0.5, max: 5.0,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customIsolationFactor = input.float("Spike isolation factor", 1.5, {
+  key: "isolation_factor", min: 1.0, max: 5.0,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customAbsorptionCounterZ = input.float("Counter-side vol Z-score", 1.0, {
+  key: "absorption_counter_z", min: 0.5, max: 5.0,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customAbsorptionVolZ = input.float("Absorption total-volume Z-score", 1.5, {
+  key: "absorption_vol_z", min: 0.5, max: 5.0,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customDivWeakness = input.float("Divergence weakness factor", 0.92, {
+  key: "div_weakness", min: 0.5, max: 0.99,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customDivWaning = input.float("Divergence waning factor", 0.93, {
+  key: "div_waning", min: 0.5, max: 0.99,
+  onlyIf: input.when("strictness", "Custom")
+})
+const customDivLegs = input.int("Divergence baseline legs", 2, {
+  key: "div_legs", min: 1, max: 5,
+  onlyIf: input.when("strictness", "Custom")
+})
+
+input.group("Core pressure", {
+  key: "core_pressure_group",
+  collapsible: true,
+  collapsed: false
+})
+
+const corePreset = input.select("Core preset", 0, {
+  key: "core_preset",
+  selectables: ["Automatic", "Scalp 1m", "Scalp 5m", "Custom"],
+  description: "Tunes the ported delta-pressure core (state machine, impulse detection) to the chart timeframe. Automatic keeps the original defaults (5m-leaning)."
+})
+
+const customLookback = input.int("Adaptation period", 120, {
+  key: "core_lookback", min: 30, max: 2000,
+  onlyIf: input.when("core_preset", "Custom")
+})
+const customCoreDeltaPeriod = input.int("Delta period", 12, {
+  key: "core_delta_period", min: 2, max: 200,
+  onlyIf: input.when("core_preset", "Custom")
+})
+const customAdaptationSpeed = input.float("Adaptation speed", 1.0, {
+  key: "core_adapt_speed", min: 0.5, max: 3.0,
+  onlyIf: input.when("core_preset", "Custom")
+})
+const customNeutralExitRatio = input.float("Neutral exit ratio", 0.65, {
+  key: "core_neutral_exit", min: 0.3, max: 0.9,
+  onlyIf: input.when("core_preset", "Custom")
 })
 
 input.tab("Feeds", { key: "feeds_tab" })
@@ -169,10 +242,21 @@ const reversalAlert = alert.define("reversal.sniper", {
 // ============================================================
 
 let activeMinScore = 3
-let activeTapeZ = 2.0
-let activeOiThreshold = 0.5
+let activeTapeZ = 1.8
+let activeFlipZ = 1.2
+let activeIsolationFactor = 1.5
+let activeAbsorptionCounterZ = 1.0
+let activeAbsorptionVolZ = 1.5
+let activeDivWeakness = 0.92
+let activeDivWaning = 0.93
+let activeDivLegs = 2
+let activeOiZ = 0.5
+let activeOiWaning = 1.0
 let activeOiVetoPct = 5.0
 let activeLiqPercentile = 95
+let activeLiqWindow = 2
+let activeLiqVolumeShare = 0.02
+let activeLiqDirection = 0.50
 let activeMinImpulseLength = 2
 let activeCooldown = 10
 let activeLevelTolerance = 10
@@ -181,27 +265,60 @@ if (strictness === "Balanced") {
   // defaults — keep as-is
 } else if (strictness === "Strict") {
   activeMinScore = 4
-  activeTapeZ = 2.5
-  activeOiThreshold = 0.3
+  activeTapeZ = 2.3
+  activeFlipZ = 1.7
+  activeIsolationFactor = 2.0
+  activeAbsorptionCounterZ = 1.5
+  activeAbsorptionVolZ = 2.0
+  activeDivWeakness = 0.87
+  activeDivWaning = 0.83
+  activeDivLegs = 3
+  activeOiZ = 0.0
+  activeOiWaning = 0.985
   activeOiVetoPct = 3.0
   activeLiqPercentile = 97
+  activeLiqWindow = 1
+  activeLiqVolumeShare = 0.03
+  activeLiqDirection = 0.55
   activeMinImpulseLength = 5
   activeCooldown = 15
   activeLevelTolerance = 5
 } else if (strictness === "Aggressive") {
   activeMinScore = 2
-  activeTapeZ = 1.5
-  activeOiThreshold = 1.0
+  activeTapeZ = 1.4
+  activeFlipZ = 0.9
+  activeIsolationFactor = 1.2
+  activeAbsorptionCounterZ = 0.8
+  activeAbsorptionVolZ = 1.0
+  activeDivWeakness = 0.96
+  activeDivWaning = 0.96
+  activeDivLegs = 2
+  activeOiZ = 1.0
+  activeOiWaning = 1.0
   activeOiVetoPct = 7.0
   activeLiqPercentile = 90
+  activeLiqWindow = 3
+  activeLiqVolumeShare = 0.02
+  activeLiqDirection = 0.50
   activeCooldown = 8
   activeLevelTolerance = 15
 } else if (strictness === "Custom") {
   activeMinScore = customMinScore
   activeTapeZ = customTapeZ
-  activeOiThreshold = customOiThreshold
+  activeFlipZ = customFlipZ
+  activeIsolationFactor = customIsolationFactor
+  activeAbsorptionCounterZ = customAbsorptionCounterZ
+  activeAbsorptionVolZ = customAbsorptionVolZ
+  activeDivWeakness = customDivWeakness
+  activeDivWaning = customDivWaning
+  activeDivLegs = customDivLegs
+  activeOiZ = customOiZ
+  activeOiWaning = customOiWaning
   activeOiVetoPct = customOiVetoPct
   activeLiqPercentile = customLiqPercentile
+  activeLiqWindow = customLiqWindow
+  activeLiqVolumeShare = customLiqVolumeShare
+  activeLiqDirection = customLiqDirection
   activeMinImpulseLength = customImpulseLength
   activeCooldown = customCooldown
   activeLevelTolerance = customLevelTolerance
@@ -215,11 +332,11 @@ if (strictness === "Balanced") {
 // so reversal signals only fire at the same impulse extremes the base
 // indicator would confirm.
 
-const activeLookback = 240
+let activeLookback = 240
 const activeSensitivity = 100
-const deltaPeriod = 12
-const adaptationSpeed = 1.0
-const neutralExitRatio = 0.65
+let deltaPeriod = 12
+let adaptationSpeed = 1.0
+let neutralExitRatio = 0.65
 const minImpulseClimax = 0.75
 
 const thresholdMultiplier = 100 / activeSensitivity
@@ -227,6 +344,34 @@ const scalePercentile = 0.92
 const entryFloorPercentile = 0.68
 const entryCeilingPercentile = 0.88
 const exitFloorPercentile = 0.45
+
+// ============================================================
+// CORE PRESET-DERIVED PARAMETERS (timeframe tuning)
+// ============================================================
+// Mirrors the base "Delta Candle Pressure" indicator's Scalp presets so the
+// ported state machine matches the chart timeframe. Automatic keeps the
+// original hard-coded values (5m-leaning); Scalp 1m optimizes for minute
+// charts (faster adaptation, shorter lookback, lower neutral exit so states
+// persist longer through the impulse).
+
+if (corePreset === "Automatic") {
+  // defaults — keep as-is
+} else if (corePreset === "Scalp 1m") {
+  activeLookback = 120
+  deltaPeriod = 10
+  adaptationSpeed = 1.20
+  neutralExitRatio = 0.55
+} else if (corePreset === "Scalp 5m") {
+  activeLookback = 240
+  deltaPeriod = 18
+  adaptationSpeed = 1.00
+  neutralExitRatio = 0.65
+} else if (corePreset === "Custom") {
+  activeLookback = customLookback
+  deltaPeriod = customCoreDeltaPeriod
+  adaptationSpeed = customAdaptationSpeed
+  neutralExitRatio = customNeutralExitRatio
+}
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value))
@@ -341,6 +486,29 @@ function medianCandleRange(bar, lookback) {
   return percentile(samples, 0.50)
 }
 
+// Closed-bar delta statistics for an impulse [start .. closedEnd]: peak intensity,
+// mean conviction (energy per bar), the last bar's delta, and the peak of all
+// earlier bars. Used by the divergence upgrade — always computed on COMPLETE
+// bars so live detection never reads partial forming-bar data.
+function impulseDeltaStats(start, closedEnd) {
+  let peak = 0
+  let energy = 0
+  let priorPeak = 0
+  for (let i = start; i <= closedEnd; i++) {
+    const d = Math.abs(rollingDeltaSeries[i])
+    peak = Math.max(peak, d)
+    energy += d
+    if (i < closedEnd) priorPeak = Math.max(priorPeak, d)
+  }
+  const n = closedEnd - start + 1
+  return {
+    peak,
+    mean: energy / Math.max(1, n),
+    endDelta: Math.abs(rollingDeltaSeries[closedEnd]),
+    priorPeak
+  }
+}
+
 function confirmedImpulse(bar, live) {
   // Historical: impulse ends at bar-2, confirmed by the closed bar bar-1.
   // Live: impulse ends at the last closed bar (bar-1), confirmed by the
@@ -359,12 +527,9 @@ function confirmedImpulse(bar, live) {
   const length = impulseEnd - impulseStart + 1
   if (length < activeMinImpulseLength) return null
 
-  let peakDelta = 0
-  for (let i = impulseStart; i <= impulseEnd; i++) {
-    peakDelta = Math.max(peakDelta, Math.abs(rollingDeltaSeries[i]))
-  }
+  const stats = impulseDeltaStats(impulseStart, impulseEnd)
   const scale = Math.max(1, adaptiveScaleSeries[impulseEnd])
-  if (peakDelta / scale < minImpulseClimax) return null
+  if (stats.peak / scale < minImpulseClimax) return null
 
   let extremeBar = impulseStart
   let extremePrice = impulseState > 0 ? highSeries[impulseStart] : lowSeries[impulseStart]
@@ -384,7 +549,11 @@ function confirmedImpulse(bar, live) {
     start: impulseStart,
     end: impulseEnd,
     length,
-    peakDelta
+    peakDelta: stats.peak,
+    peakScaled: stats.peak / scale,
+    meanScaled: stats.mean / scale,
+    endDelta: stats.endDelta,
+    priorPeak: stats.priorPeak
   }
 }
 
@@ -424,10 +593,12 @@ function potentialExtreme(bar) {
   const length = bar - impulseStart + 1
   if (length < activeMinImpulseLength) return null
 
-  let peakDelta = 0
-  for (let i = impulseStart; i <= bar; i++) {
-    peakDelta = Math.max(peakDelta, Math.abs(rollingDeltaSeries[i]))
-  }
+  // Divergence measurements use only CLOSED bars [impulseStart .. bar-1] so the
+  // forming bar's partial delta never biases the comparison. The full-range
+  // peak (including the forming bar) is kept for the climax gate and alerts.
+  const stats = impulseDeltaStats(impulseStart, bar - 1)
+  let peakDelta = stats.peak
+  peakDelta = Math.max(peakDelta, Math.abs(rollingDeltaSeries[bar]))
   const scale = Math.max(1, adaptiveScaleSeries[bar])
   if (peakDelta / scale < minImpulseClimax) return null
 
@@ -438,7 +609,11 @@ function potentialExtreme(bar) {
     start: impulseStart,
     end: bar,
     length,
-    peakDelta
+    peakDelta,
+    peakScaled: stats.peak / scale,
+    meanScaled: stats.mean / scale,
+    endDelta: stats.endDelta,
+    priorPeak: stats.priorPeak
   }
 }
 
@@ -464,45 +639,118 @@ function rollingMeanStd(series, bar, lookback) {
   return { mean, std: Math.max(1, Math.sqrt(variance)) }
 }
 
-function percentileRank(series, value, bar, lookback) {
-  // Returns the rank (0..1) of value within the trailing window excluding bar.
-  const first = Math.max(0, bar - lookback)
-  if (first >= bar || !isFiniteNumber(value)) return 0
-  let below = 0, total = 0
-  for (let i = first; i < bar; i++) {
+function windowSumPercentile(series, bar, window, lookback) {
+  // Returns the rank (0..1) of the sum of series over [bar-window+1 .. bar]
+  // within the trailing distribution of equivalent-length window sums
+  // (windows ending strictly before bar). Used by the liquidation flush:
+  // a flush is an EPISODE spanning several bars, not a single-bar spike.
+  if (window < 1 || !isFiniteNumber(bar) || bar < window - 1) return 0
+  let currentSum = 0
+  for (let i = bar - window + 1; i <= bar; i++) {
     const v = series[i]
-    if (isFiniteNumber(v)) {
-      if (v <= value) below++
-      total++
+    if (!isFiniteNumber(v)) return 0
+    currentSum += v
+  }
+  const first = Math.max(0, bar - lookback)
+  let below = 0, total = 0
+  for (let end = first + window - 1; end < bar; end++) {
+    let sum = 0, valid = true
+    for (let i = end - window + 1; i <= end; i++) {
+      const v = series[i]
+      if (!isFiniteNumber(v)) { valid = false; break }
+      sum += v
     }
+    if (!valid) continue
+    if (sum <= currentSum) below++
+    total++
   }
   if (total === 0) return 0
   return below / total
 }
 
-function evaluateTape(extremeBar) {
+function evaluateTape(extremeBar, impulseState) {
   if (!useTape) return false
   const trades = tradeCountSeries[extremeBar]
   if (!isFiniteNumber(trades)) return false
   const { mean, std } = rollingMeanStd(tradeCountSeries, extremeBar, 100)
   if (std <= 1) return false
   const z = (trades - mean) / std
-  return z >= activeTapeZ
+  if (z < activeTapeZ) return false
+
+  // ── Spike isolation ──
+  // Exhaustion is a one-bar blow-off, not a plateau. If trade count has been
+  // hot for several bars straight, that's sustained participation (a real
+  // trend), not a reversal spike. The extreme bar must clearly beat the best
+  // of the prior 3 bars. Skipped when there's no prior history yet.
+  let priorMax = 0
+  const first = Math.max(0, extremeBar - 3)
+  for (let i = first; i < extremeBar; i++) {
+    const v = tradeCountSeries[i]
+    if (isFiniteNumber(v)) priorMax = Math.max(priorMax, v)
+  }
+  if (priorMax > 0 && trades <= priorMax * activeIsolationFactor) return false
+
+  // ── Aggressor-side split (participation flip) ──
+  // A tape burst only means exhaustion if the *counter* side of the tape
+  // dominates and bursts on its own: sells outnumber buys at a bullish
+  // extreme (top), buys outnumber sells at a bearish extreme (bottom).
+  // The counter-side count must also spike vs its own trailing window.
+  const buy = buyCountSeries[extremeBar]
+  const sell = sellCountSeries[extremeBar]
+  if (!isFiniteNumber(buy) || !isFiniteNumber(sell)) return false
+  const counter = impulseState > 0 ? sell : buy
+  const sameSide = impulseState > 0 ? buy : sell
+  if (counter <= sameSide) return false
+  const counterSeries = impulseState > 0 ? sellCountSeries : buyCountSeries
+  const cStats = rollingMeanStd(counterSeries, extremeBar, 100)
+  if (cStats.std <= 1) return false
+  const counterZ = (counter - cStats.mean) / cStats.std
+  if (counterZ < activeFlipZ) return false
+
+  return true
 }
 
 function evaluateAbsorption(extremeBar, impulseState) {
   if (!useAbsorption) return false
-  const trades = tradeCountSeries[extremeBar]
-  if (!isFiniteNumber(trades)) return false
-  const { mean, std } = rollingMeanStd(tradeCountSeries, extremeBar, 100)
+  const vol = volumeSeries[extremeBar]
+  if (!isFiniteNumber(vol)) return false
+
+  // ── Activity floor (total volume) ──
+  // Absorption is a SIZE phenomenon, so the floor is measured on total candle
+  // volume — not trade count. This makes absorption independent of the
+  // count-based tape spike: each now reads a different fact (size vs
+  // participation frequency).
+  const { mean, std } = rollingMeanStd(volumeSeries, extremeBar, 100)
   if (std <= 1) return false
-  const tapeZ = (trades - mean) / std
-  if (tapeZ < 1.5) return false
+  const volZ = (vol - mean) / std
+  if (volZ < activeAbsorptionVolZ) return false
+
+  // ── Counter-side volume stack-up ──
+  // Tape burst alone can be many tiny prints (spoof / retail noise). Real
+  // absorption requires the ABSORBING side to show up with size: for a bull
+  // impulse (extreme at top) that is sell volume, for a bear impulse
+  // (extreme at bottom) that is buy volume. Elevation is measured against
+  // that side's own trailing distribution, so impulse-side dumping with
+  // passive counter-side matching no longer qualifies as absorption.
+  const counterVolSeries = impulseState > 0 ? sellVolSeries : buyVolSeries
+  const counterVol = counterVolSeries[extremeBar]
+  if (!isFiniteNumber(counterVol)) return false
+  const cvStats = rollingMeanStd(counterVolSeries, extremeBar, 100)
+  if (cvStats.std <= 1) return false
+  const cvZ = (counterVol - cvStats.mean) / cvStats.std
+  if (cvZ < activeAbsorptionCounterZ) return false
+
+  // ── Delta neutrality ──
+  // Absorption = flow being neutralised. If this bar's own delta is large
+  // relative to its volume, that's a real directional push, not absorption.
+  const barDelta = Math.abs(deltaSeries[extremeBar])
+  if (!isFiniteNumber(barDelta) || vol <= 0) return false
+  if (barDelta / vol > 0.25) return false
 
   const range = highSeries[extremeBar] - lowSeries[extremeBar]
   if (range <= 0) return false
   const medRange = medianCandleRange(extremeBar, 50)
-  if (range / medRange > 0.6) return false
+  if (range / medRange > 0.7) return false
 
   // Close rejection against impulse direction
   const close = closeSeries[extremeBar]
@@ -518,25 +766,89 @@ function evaluateAbsorption(extremeBar, impulseState) {
 
 function evaluateDivergence(impulse) {
   if (!useDivergence) return false
-  // Find the most recent same-direction impulse
-  let prev = null
+  // B — baseline: the strongest of the last N same-direction impulses.
+  // Comparing against a strong recent leg (not just the immediate prior one)
+  // catches progressive multi-leg fades and stops a weak prior leg from
+  // making the weakness ratio trivially easy to satisfy.
+  const legs = []
   for (let i = lastImpulses.length - 1; i >= 0; i--) {
-    if (lastImpulses[i].state === impulse.state) {
-      prev = lastImpulses[i]
-      break
+    const p = lastImpulses[i]
+    if (p.state === impulse.state && p.start !== impulse.start) {
+      legs.push(p)
+      if (legs.length >= activeDivLegs) break
     }
   }
-  if (!prev) return false
+  if (legs.length === 0) return false
+  if (!isFiniteNumber(impulse.peakScaled) || !isFiniteNumber(impulse.meanScaled)) return false
+
+  let baseExtreme = impulse.state > 0 ? -Infinity : Infinity
+  let basePeakScaled = 0
+  let baseMeanScaled = 0
+  for (const p of legs) {
+    if (impulse.state > 0) baseExtreme = Math.max(baseExtreme, p.extremePrice)
+    else baseExtreme = Math.min(baseExtreme, p.extremePrice)
+    if (isFiniteNumber(p.peakScaled)) basePeakScaled = Math.max(basePeakScaled, p.peakScaled)
+    if (isFiniteNumber(p.meanScaled)) baseMeanScaled = Math.max(baseMeanScaled, p.meanScaled)
+  }
+  if (basePeakScaled <= 0 || baseMeanScaled <= 0) return false
+
+  // C — scale-normalized weakness: BOTH peak intensity and mean conviction
+  // must weaken relative to the strongest recent leg.
+  const peakWeak = impulse.peakScaled < basePeakScaled * activeDivWeakness
+  const meanWeak = impulse.meanScaled < baseMeanScaled * activeDivWeakness
+
+  // E — waning: the impulse's final closed bar must be well below its own
+  // prior peak, i.e. pressure is dying as price prints the new extreme.
+  // Skipped for single-bar impulses where there is no earlier bar to compare.
+  let waning = true
+  if (impulse.priorPeak > 0) {
+    waning = impulse.endDelta < impulse.priorPeak * activeDivWaning
+  }
 
   if (impulse.state > 0) {
-    // Bullish impulse: price higher high, delta lower peak
-    return impulse.extremePrice > prev.extremePrice &&
-           impulse.peakDelta < prev.peakDelta * 0.9
-  } else {
-    // Bearish impulse: price lower low, delta lower peak
-    return impulse.extremePrice < prev.extremePrice &&
-           impulse.peakDelta < prev.peakDelta * 0.9
+    // Bullish impulse: price higher high, delta lower peak & mean, waning end
+    return impulse.extremePrice > baseExtreme && peakWeak && meanWeak && waning
   }
+  // Bearish impulse: price lower low, delta lower peak & mean, waning end
+  return impulse.extremePrice < baseExtreme && peakWeak && meanWeak && waning
+}
+
+function oiImpulsePeak(start, extremeBar) {
+  // Peak open interest inside the impulse window [start .. extremeBar].
+  // Both evaluateOi (fuel rollover) and oiGrowthVeto (peak-based fresh-money)
+  // scan the window once. Includes the extreme bar, so on the live potential
+  // path the forming bar's OI participates exactly like the historical path.
+  let peakOi = -Infinity
+  let peakBar = start
+  for (let i = start; i <= extremeBar; i++) {
+    const v = oiSeries[i]
+    if (isFiniteNumber(v) && v > peakOi) {
+      peakOi = v
+      peakBar = i
+    }
+  }
+  return { peakOi, peakBar }
+}
+
+function oiNetChangeStats(length, extremeBar) {
+  // Distribution of net OI % change over trailing windows of the same length
+  // as the impulse (windows ending strictly before extremeBar). Used to
+  // normalize the impulse's own net change — adaptive to OI volatility
+  // instead of a fixed % threshold. Never reads forming-bar data.
+  const samples = []
+  const lookback = 100
+  const first = Math.max(extremeBar - lookback, length)
+  for (let end = first; end < extremeBar; end++) {
+    const a = oiSeries[end - length]
+    const b = oiSeries[end]
+    if (isFiniteNumber(a) && isFiniteNumber(b) && a > 0) {
+      samples.push((b - a) / a * 100)
+    }
+  }
+  if (samples.length < 5) return { mean: 0, std: 1 }
+  const mean = samples.reduce((s, v) => s + v, 0) / samples.length
+  const variance = samples.reduce((s, v) => s + (v - mean) * (v - mean), 0) / samples.length
+  return { mean, std: Math.max(0.01, Math.sqrt(variance)) }
 }
 
 function evaluateOi(impulse) {
@@ -547,39 +859,90 @@ function evaluateOi(impulse) {
   // Anti-squeeze guard: only count if impulse is long enough
   if (impulse.length < 5) return false
 
-  const oiChangePct = (endOi - startOi) / startOi * 100
-  // Non-confirmation: OI didn't grow meaningfully in the impulse direction.
-  // For both bull and bear impulses, OI change ≤ threshold = no fresh fuel.
-  return oiChangePct <= activeOiThreshold
+  // Gate A — no fresh money (normalized). Net OI change over the impulse,
+  // Z-scored against trailing windows of the same length. OI grew at or
+  // below typical pace = no fresh fuel added in the impulse direction.
+  const netOiPct = (endOi - startOi) / startOi * 100
+  const { mean, std } = oiNetChangeStats(impulse.length, impulse.extremeBar)
+  const netOiZ = (netOiPct - mean) / std
+  if (netOiZ > activeOiZ) return false
+
+  // Gate B — fuel exhaustion (trajectory). OI must have PEAKED before the
+  // final bar and rolled over by the waning factor before the extreme —
+  // money being burned, not added. Requires impulse >= 5 bars (above) so the
+  // window is long enough to contain a real rollover.
+  const peak = oiImpulsePeak(impulse.start, impulse.extremeBar)
+  if (peak.peakBar >= impulse.extremeBar) return false
+  if (endOi > peak.peakOi * activeOiWaning) return false
+
+  return true
 }
 
 function oiGrowthVeto(impulse) {
   // Fresh-money veto: OI growing strongly across the impulse means new fuel is
   // being added in the impulse direction — direct counter-evidence to a
-  // reversal. Suppresses the signal regardless of score. Shares the anti-
-  // squeeze guard with evaluateOi (impulse ≥ 5 bars).
+  // reversal. Peak-based: catches mid-impulse OI surges that later retrace
+  // before the extreme (the old endpoint-only check missed those). Suppresses
+  // the signal regardless of score. Shares the anti-squeeze guard with
+  // evaluateOi (impulse ≥ 5 bars).
   if (!useOi || !oiSub) return false
   if (impulse.length < 5) return false
   const startOi = oiSeries[impulse.start]
-  const endOi = oiSeries[impulse.extremeBar]
-  if (!isFiniteNumber(startOi) || !isFiniteNumber(endOi) || startOi === 0) return false
-  const oiChangePct = (endOi - startOi) / startOi * 100
-  return oiChangePct >= activeOiVetoPct
+  if (!isFiniteNumber(startOi) || startOi === 0) return false
+  const peak = oiImpulsePeak(impulse.start, impulse.extremeBar)
+  if (!isFiniteNumber(peak.peakOi) || peak.peakOi <= 0) return false
+  const oiGrowthPct = (peak.peakOi - startOi) / startOi * 100
+  return oiGrowthPct >= activeOiVetoPct
 }
 
 function evaluateLiq(extremeBar, impulseState) {
   if (!useLiq || !statSub) return false
-  if (impulseState > 0) {
-    // Bullish impulse → top reversal → buyLiq (short squeeze forced buys) spike
-    const liq = buyLiqSeries[extremeBar]
-    if (!isFiniteNumber(liq)) return false
-    return percentileRank(buyLiqSeries, liq, extremeBar, 200) >= activeLiqPercentile / 100
-  } else {
-    // Bearish impulse → bottom reversal → sellLiq (long liquidations) spike
-    const liq = sellLiqSeries[extremeBar]
-    if (!isFiniteNumber(liq)) return false
-    return percentileRank(sellLiqSeries, liq, extremeBar, 200) >= activeLiqPercentile / 100
+  // Bullish impulse → top reversal → buyLiq (short squeeze forced buys);
+  // bearish impulse → bottom reversal → sellLiq (long liquidations).
+  const sideSeries = impulseState > 0 ? buyLiqSeries : sellLiqSeries
+  const otherSeries = impulseState > 0 ? sellLiqSeries : buyLiqSeries
+
+  // Gate A — flush episode (window-sum percentile). A flush spans several
+  // bars, so sum the impulse-side liq over activeLiqWindow bars ending at the
+  // extreme and rank that episode against trailing equivalent windows.
+  if (windowSumPercentile(sideSeries, extremeBar, activeLiqWindow, 200) <
+      activeLiqPercentile / 100) return false
+
+  // Episode sums (same window)
+  let liqEpisode = 0
+  let otherEpisode = 0
+  let volEpisode = 0
+  let otherValid = true
+  let volValid = true
+  for (let i = extremeBar - activeLiqWindow + 1; i <= extremeBar; i++) {
+    const l = sideSeries[i]
+    if (!isFiniteNumber(l)) return false
+    liqEpisode += l
+    const o = otherSeries[i]
+    if (isFiniteNumber(o)) otherEpisode += o
+    else otherValid = false
+    const v = volumeSeries[i]
+    if (isFiniteNumber(v)) volEpisode += v
+    else volValid = false
   }
+
+  // Gate B — forced-flow share. The flush must be a meaningful share of that
+  // window's total volume, not a few forced prints on a huge-volume bar.
+  // Skips gracefully if volume is unavailable.
+  if (volValid && volEpisode > 0 && liqEpisode / volEpisode < activeLiqVolumeShare) {
+    return false
+  }
+
+  // Gate C — directional dominance. One-sided squeeze/capitulation: the
+  // impulse-side liq must dominate the counter side over the same window.
+  // Skips gracefully if the counter-side feed is unavailable.
+  if (otherValid) {
+    const totalEpisode = liqEpisode + otherEpisode
+    if (totalEpisode <= 0) return false
+    if (liqEpisode / totalEpisode < activeLiqDirection) return false
+  }
+
+  return true
 }
 
 function evaluateWick(extremeBar, impulseState) {
@@ -645,6 +1008,10 @@ const closeSeries = Series("rs.close")
 const volumeSeries = Series("rs.volume")
 const unixSeries = Series("rs.unix")
 const tradeCountSeries = Series("rs.trades")
+const buyCountSeries = Series("rs.buy_count")
+const sellCountSeries = Series("rs.sell_count")
+const buyVolSeries = Series("rs.buy_vol")
+const sellVolSeries = Series("rs.sell_vol")
 const deltaSeries = Series("rs.delta")
 const rollingDeltaSeries = Series("rs.rolling_delta")
 const adaptiveScaleSeries = Series("rs.adaptive_scale")
@@ -653,6 +1020,7 @@ const exitSeries = Series("rs.exit")
 const stateSeries = Series("rs.state")
 
 const oiSeries = Series("rs.oi")
+const oiChangeSeries = Series("rs.oi_change")
 const sellLiqSeries = Series("rs.sell_liq")
 const buyLiqSeries = Series("rs.buy_liq")
 
@@ -695,6 +1063,8 @@ function onBar(index) {
   }
   tradeCountSeries[bar] = (isFiniteNumber(buyCount) ? buyCount : 0) +
                           (isFiniteNumber(sellCount) ? sellCount : 0)
+  buyCountSeries[bar] = isFiniteNumber(buyCount) ? buyCount : 0
+  sellCountSeries[bar] = isFiniteNumber(sellCount) ? sellCount : 0
 
   // Delta
   const buyVol = candles.buyVolume()
@@ -702,6 +1072,8 @@ function onBar(index) {
   const delta = (isFiniteNumber(buyVol) ? buyVol : 0) -
                 (isFiniteNumber(sellVol) ? sellVol : 0)
   deltaSeries[bar] = delta
+  buyVolSeries[bar] = isFiniteNumber(buyVol) ? buyVol : 0
+  sellVolSeries[bar] = isFiniteNumber(sellVol) ? sellVol : 0
 
   // Rolling delta (sum over deltaPeriod bars)
   const previousRolling = bar === 0 ? 0 : rollingDeltaSeries[bar - 1]
@@ -710,7 +1082,12 @@ function onBar(index) {
 
   // Cache OI and liquidation data if their feeds were available
   if (oiSub && oiSeries) {
-    oiSeries[bar] = oiSub.close()
+    const oi = oiSub.close()
+    oiSeries[bar] = oi
+    const prevOi = bar === 0 ? oi : oiSeries[bar - 1]
+    oiChangeSeries[bar] = (isFiniteNumber(oi) && isFiniteNumber(prevOi) && prevOi > 0)
+      ? (oi - prevOi) / prevOi * 100
+      : 0
   }
   if (statSub && sellLiqSeries) {
     sellLiqSeries[bar] = statSub.sellLiq()
@@ -799,8 +1176,8 @@ function onBar(index) {
         showValue: true
       })
 
-      // Score as a % of the maximum possible (honest max — tape + absorption
-      // share one vote), 0-100.
+      // Score as a % of the maximum possible — each enabled component is an
+      // independent fact, so the denominator is the honest max.
       plotHistogram("Score", lastScore / Math.max(1, lastMaxScore) * 100, {
         color: scoreColor,
         showLabel: true,
@@ -868,7 +1245,7 @@ function evaluateImpulse(bar, impulse, live) {
   // data. Dedup + cooldown below already guarantee one signal per impulse.
 
   // Evaluate each component
-  const tapeOk = evaluateTape(extremeBar)
+  const tapeOk = evaluateTape(extremeBar, impulseState)
   const absorptionOk = evaluateAbsorption(extremeBar, impulseState)
   const divergenceOk = evaluateDivergence(impulse)
   const oiOk = evaluateOi(impulse)
@@ -879,13 +1256,10 @@ function evaluateImpulse(bar, impulse, live) {
   // Score
   let score = 0
   const triggered = []
-  // Anti-double-count: tape and absorption read the SAME trade-count burst
-  // (absorption requires tape Z ≥ 1.5 from the same 100-bar window), so they
-  // share ONE vote — tape wins the label when both fire. Every point in the
-  // score is now an independent fact; the component bars still show the raw
-  // triggers.
+  // Each enabled component reads a different fact (tape = count burst,
+  // absorption = volume neutrality), so every trigger earns its own vote.
   if (tapeOk) { score++; triggered.push("tape") }
-  else if (absorptionOk) { score++; triggered.push("absorb") }
+  if (absorptionOk) { score++; triggered.push("absorb") }
   if (divergenceOk) { score++; triggered.push("divergence") }
   if (oiOk) { score++; triggered.push("oi") }
   if (liqOk) { score++; triggered.push("liq") }
@@ -921,8 +1295,9 @@ function evaluateImpulse(bar, impulse, live) {
 
   const clustersOk = flowClusterOk && positioningClusterOk
 
-  // Honest max score: tape + absorption share one vote, so the denominator
-  // drops by one when both are enabled and available.
+  // Honest max score: each enabled component contributes one independent vote.
+  // Tape and absorption each read a different fact (count burst vs volume
+  // neutrality), so they no longer share a vote.
   let maxScore = 0
   if (useTape && tapeHasCounts) maxScore++
   if (useDivergence) maxScore++
@@ -931,7 +1306,6 @@ function evaluateImpulse(bar, impulse, live) {
   if (useLiq && statSub) maxScore++
   if (useWick) maxScore++
   if (usePriorLevel) maxScore++
-  if (useTape && tapeHasCounts && useAbsorption && tapeHasCounts) maxScore--
   lastMaxScore = maxScore
 
   // Dedup & cooldown — one signal per impulse (the live potential path can
@@ -987,6 +1361,10 @@ function evaluateImpulse(bar, impulse, live) {
   if (previousImpulseEntry && previousImpulseEntry.start === impulse.start) {
     previousImpulseEntry.extremePrice = impulse.extremePrice
     previousImpulseEntry.peakDelta = impulse.peakDelta
+    previousImpulseEntry.peakScaled = impulse.peakScaled
+    previousImpulseEntry.meanScaled = impulse.meanScaled
+    previousImpulseEntry.endDelta = impulse.endDelta
+    previousImpulseEntry.priorPeak = impulse.priorPeak
     previousImpulseEntry.extremeBar = impulse.extremeBar
     previousImpulseEntry.end = impulse.end
   } else {
@@ -994,6 +1372,10 @@ function evaluateImpulse(bar, impulse, live) {
       state: impulseState,
       extremePrice: impulse.extremePrice,
       peakDelta: impulse.peakDelta,
+      peakScaled: impulse.peakScaled,
+      meanScaled: impulse.meanScaled,
+      endDelta: impulse.endDelta,
+      priorPeak: impulse.priorPeak,
       extremeBar: impulse.extremeBar,
       end: impulse.end
     })
