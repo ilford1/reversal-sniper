@@ -29,28 +29,39 @@
 <p><span class="tag">MMT script</span><span class="tag">Delta pressure</span><span class="tag">Tape + OI + Liq confluence</span></p>
 
 <p><strong>Reversal Sniper</strong> is an MMT (Momentum Trader Terminal) indicator that
-detects <em>confirmed impulse extremes</em> in rolling delta pressure and scores them
-against a confluence cluster of tape, open interest and liquidation data. It fires a
-square marker at the extreme price and an alert with the full score breakdown — built
-for catching counter-trend reversal zones at climax points.</p>
+detects <em>impulse extremes</em> in rolling delta pressure — firing <strong>in realtime
+as the extreme forms</strong> (no 2-bar confirmation wait) — and scores them against a
+confluence cluster of tape, open interest and liquidation data. It fires a square marker
+at the extreme price and an alert with the full score breakdown — built for catching
+counter-trend reversal zones at climax points.</p>
 
 <h2>1 · How to use it</h2>
 
 <h3>Install &amp; load</h3>
 <ol>
   <li>Open MMT → <strong>Indicators</strong> → load <code>Reversal Sniper.js</code> from the local indicators folder.</li>
-  <li>Attach it to a chart. It overlays markers directly on price, so no separate pane is needed.</li>
+  <li>Attach it to a chart. Confirmed reversal signals are square markers overlaid directly on price, and the script&rsquo;s own pane shows a live dashboard:</li>
+</ol>
+<ul>
+  <li><strong>Delta pressure</strong> histogram — rolling delta as % of adaptive scale, green/red while an impulse state is active, dim when neutral.</li>
+  <li><strong>Entry</strong> (dashed) / <strong>Exit</strong> (dotted) hysteresis bands.</li>
+  <li><strong>State</strong> line — current state machine value (±100) in the same green/red/neutral colors.</li>
+  <li><strong>Score</strong> histogram — most recent impulse evaluation score as % of the honest max (6 when tape + absorption are both on; purple, persists between setups).</li>
+  <li><strong>Component status</strong> bars — Tape, Divergence, Absorption, OI, Liq, Wick, Level (each 0/100, persists between evaluations).</li>
+</ul>
+<ol start="3">
   <li>For the <strong>Positioning cluster</strong> (OI / liquidations) to work, the connected exchange must provide those feeds (e.g. Binance Futures, Bybit). The indicator degrades gracefully if they are missing.</li>
 </ol>
 <h3>Inputs — 4 tabs</h3>
 <table>
   <tr><th>Tab</th><th>Setting</th><th>What it does</th></tr>
   <tr><td rowspan="2"><strong>Sniper</strong></td><td>Strictness</td><td>Preset that tunes the whole system: <em>Balanced</em> (default), <em>Strict</em> (fewer, higher-conviction), <em>Aggressive</em> (more signals), <em>Custom</em> (exposes every threshold below).</td></tr>
-  <tr><td>Custom thresholds</td><td>Minimum score (1–7), tape Z-score, OI max change %, liquidation percentile, min impulse length, cooldown bars, level tolerance ticks.</td></tr>
-  <tr><td rowspan="3"><strong>Feeds</strong></td><td>Flow cluster</td><td>Tape speed spike, delta divergence, absorption — at least one must fire for a signal.</td></tr>
+  <tr><td>Custom thresholds</td><td>Minimum score (1–7), tape Z-score, OI max change %, OI growth veto %, liquidation percentile, min impulse length, cooldown bars, level tolerance ticks.</td></tr>
+  <tr><td rowspan="3"><strong>Feeds</strong></td><td>Flow cluster</td><td>Tape speed spike, delta divergence, absorption — at least one must fire for a signal. Tape and absorption share a single score point (both read the same trade-count burst).</td></tr>
   <tr><td>Positioning cluster</td><td>Open interest non-confirmation, liquidation flush — at least one must fire for a signal.</td></tr>
   <tr><td>Bonus</td><td>Rejection wick, prior level confluence — add score points, not required.</td></tr>
-  <tr><td><strong>Display</strong></td><td>Marker colors / size</td><td><span class="bull">Green</span> at bearish-impulse lows (bullish reversal), <span class="bear">red</span> at bullish-impulse highs (bearish reversal).</td></tr>
+  <tr><td rowspan="2"><strong>Display</strong></td><td>Marker colors / size</td><td><span class="bull">Green</span> at bearish-impulse lows (bullish reversal), <span class="bear">red</span> at bullish-impulse highs (bearish reversal).</td></tr>
+  <tr><td>Pane display</td><td>Master dashboard toggle, section toggles (pressure histogram + bands, signal status, component bars) and custom colors for every pane series (entry/exit bands, zero line, state, score, and each of the 7 component bars).</td></tr>
   <tr><td><strong>Alerts</strong></td><td>Enable alerts</td><td>Fires only on realtime bars with direction, price, score, max score, triggered components, impulse bars and peak delta ratio.</td></tr>
 </table>
 
@@ -71,14 +82,14 @@ your automation and only act on signals containing the components you trust most
   <li><strong>Rolling delta</strong> — a 12-bar rolling sum of buy/sell volume delta; the raw "who is in control" measure.</li>
   <li><strong>Adaptive scale</strong> — each bar's expected delta magnitude is estimated from the trailing 240 bars: a natural split found via <strong>Otsu thresholding</strong> (separating normal noise from bursts) clamped between percentile rails (68th–88th), then smoothed with an asymmetric EMA (fast up, slow down) so the scale keeps up with expansions but doesn't crash on quiet periods.</li>
   <li><strong>State machine</strong> — rolling delta vs. adaptive entry/exit thresholds produces a trinary state (+1 bull / 0 neutral / −1 bear) with hysteresis: you need a big move to enter a state, a small move to leave it.</li>
-  <li><strong>Confirmed impulse</strong> — a state flip (e.g. +1 → 0/−1) two bars later confirms the impulse is over. The impulse's start is walked back through the state run, its <strong>peak delta</strong> must exceed 75% of the adaptive scale (a genuine climax, not noise), and the extreme price is the highest high / lowest low of the run.</li>
+  <li><strong>Confirmed / potential impulse</strong> — for backfill, a state flip (e.g. +1 → 0/−1) two bars later confirms the impulse is over; <strong>in realtime</strong> the marker fires the moment the forming bar pushes a new extreme inside an active impulse (or, at an established level, the moment the state exits mid-bar) — no waiting for confirmation. The impulse's start is walked back through the state run, its <strong>peak delta</strong> must exceed 75% of the adaptive scale (a genuine climax, not noise), and the extreme price is the highest high / lowest low of the run.</li>
 </ol>
 
 <h3>Step 2 — Confluence scoring</h3>
 <p>Each confirmed extreme is scored against seven components (each +1):</p>
 <table>
   <tr><th>Component</th><th>Checks</th><th>Why it matters</th></tr>
-  <tr><td>Tape speed spike</td><td>Trade count at the extreme is ≥ N standard deviations above its 30-bar mean (Z-score).</td><td>Climaxes come with a burst of executions — activity spike confirms the extreme is "real", not drift.</td></tr>
+  <tr><td>Tape speed spike</td><td>Trade count at the extreme is ≥ N standard deviations above its 100-bar mean (Z-score).</td><td>Climaxes come with a burst of executions — activity spike confirms the extreme is "real", not drift.</td></tr>
   <tr><td>Delta divergence</td><td>Price made a higher extreme, but the impulse's peak delta is &lt; 90% of the previous same-direction impulse's peak.</td><td>Weakening buyer/seller conviction at a new extreme = classic divergence, the fuel is running out.</td></tr>
   <tr><td>Absorption</td><td>Heavy tape (Z ≥ 1.5) into a small-range bar that closes back inside the body (rejection).</td><td>Big volume that fails to make progress means the opposite side is absorbing the flow.</td></tr>
   <tr><td>OI non-confirmation</td><td>Open interest grew ≤ threshold% across the impulse (and impulse is ≥ 5 bars, to avoid squeeze-noise).</td><td>A reversal with fresh fuel needs new OI. Stagnant/falling OI into the extreme = the move was driven by closing, not new positioning — trend often reverses.</td></tr>
@@ -87,12 +98,23 @@ your automation and only act on signals containing the components you trust most
   <tr><td>Prior level confluence</td><td>Extreme price sits within N ticks of a previous impulse extreme.</td><td>Re-tests of prior reaction zones are where reversals repeat; confluence compounds conviction.</td></tr>
 </table>
 
+<p><strong>Honest counting:</strong> tape and absorption read the <em>same</em> trade-count
+burst (absorption requires tape Z ≥ 1.5 from the same 100-bar window), so they share a
+single score point — the score counts independent facts (max 6 when both are on), while
+the component bars still show every raw trigger.
+<strong>Fresh-money veto:</strong> if open interest <em>grew</em> strongly across the
+impulse (≥ the OI growth veto %, default 5% — 3% on Strict, 7% on Aggressive), the signal
+is suppressed regardless of score: new fuel added in the impulse direction argues against
+an imminent reversal.</p>
+
 <h3>Step 3 — Firing rules</h3>
 <ul>
   <li><strong>Gate:</strong> confirmed impulse extreme (always required).</li>
   <li><strong>Cluster requirements:</strong> ≥ 1 component from the <em>Flow</em> cluster <strong>and</strong> ≥ 1 from the <em>Positioning</em> cluster — so a signal is never just "a big candle" nor just "a big liquidation".</li>
-  <li><strong>Minimum score:</strong> total score must reach the preset's threshold (Balanced 4, Strict 6, Aggressive 3 by default).</li>
+  <li><strong>Minimum score:</strong> total score must reach the preset's threshold (Balanced 3, Strict 4, Aggressive 2 by default).</li>
+  <li><strong>Fresh-money veto:</strong> strong OI growth (≥ the veto %) across the impulse blocks the signal no matter the score.</li>
   <li><strong>Dedup + cooldown:</strong> the same impulse fires once, and new signals wait the cooldown period after the last one — no marker spam on the same extreme.</li>
+  <li><strong>Realtime (live chart):</strong> signals are evaluated on every tick of the forming bar — there is <strong>no <code>bar − 2</code> confirmation wait</strong>. The moment the forming bar pushes a <em>new</em> extreme inside an active impulse (higher high / lower low), the marker prints <strong>immediately at the current bar</strong>, no chart reload needed. If the reversal happens at an established level instead (the forming bar doesn't make a new extreme), the marker fires as soon as the state machine exits the impulse mid-bar. On reload/backfill the marker is re-anchored at the exact extreme price/bar.</li>
 </ul>
 
 <h3>Degradation &amp; limits</h3>

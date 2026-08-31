@@ -5,6 +5,18 @@ reversal zones at delta-pressure impulse extremes.
 
 ## Files
 
+### `OI Buildup.js`
+
+**OI Buildup S/R** — builds dynamic support/resistance levels from **where Open
+Interest builds**, not from price pivots. When cumulative positive OI delta over the
+trailing window crosses the growth threshold, a *buildup zone* starts; when the growth
+"resets" below the exit ratio, the zone finalizes into a horizontal level at the
+**OI-weighted average price**. Levels are colored support/resistance dynamically by
+the current price position, the latest buildup is highlighted in gold, and OI/price
+divergence (price HH with OI lower high, price LL with OI higher low) is flagged with
+markers and alerts. Requires an OI feed (Binance Futures, Bybit); degrades gracefully
+without it.
+
 ### `Reversal Sniper.js`
 
 Flags confirmed impulse extremes (delta-pressure state flips) and scores them
