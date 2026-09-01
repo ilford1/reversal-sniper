@@ -23,7 +23,7 @@ don't need to re-scan every file.
 
 | File | Role |
 |---|---|
-| `Delta Candle Pressure.js` | Base indicator: adaptive pressure candles, wick levels, session CVD |
+| `Delta Candle Pressure.js` | Base indicator: adaptive pressure candles (5-stop color spectrum), wick levels, session CVD |
 | `Reversal Sniper.js` | Signal indicator: DCP core math (frozen copy) + 7-component confluence scoring |
 | `Tape Pulse.js` | Signal indicator (display name: Extreme Decay): same frozen DCP core + exhaustion scoring (density / rhythm / climax decay) |
 | `OI Buildup.js` | Level indicator (display name: OI Buildup S/R): OI-weighted dynamic S/R levels from buildup zones + OI/price divergence |

@@ -27,12 +27,13 @@ const customGrowthPct = input.float("Min OI growth %", 2.0, {
   key: "oib_growth", min: 0.5, max: 20.0,
   onlyIf: input.when("oib_preset", "Custom")
 })
-const customExitRatio = input.float("Exit ratio", 0.35, {
-  key: "oib_exit", min: 0.1, max: 0.9,
-  onlyIf: input.when("oib_preset", "Custom")
+const customPurityPct = input.float("Base purity %", 60, {
+  key: "oib_purity", min: 50, max: 100,
+  onlyIf: input.when("oib_preset", "Custom"),
+  description: "Min share of accumulation volume initiated by the dominant side (long vs short) for a valid base"
 })
-const customMinBuildupBars = input.int("Min buildup bars", 3, {
-  key: "oib_min_bars", min: 1, max: 20,
+const customMinAccumBars = input.int("Min accumulation bars", 3, {
+  key: "oib_min_accum", min: 1, max: 20,
   onlyIf: input.when("oib_preset", "Custom")
 })
 const customMergeTolerance = input.int("Merge tolerance (ticks)", 6, {
@@ -110,7 +111,7 @@ const enableAlerts = input.bool("Enable alerts", true, {
 
 const buildupAlert = alert.define("oi.buildup", {
   title: "OI Buildup Level",
-  description: "A new OI buildup zone finalized and a support/resistance level drawn.",
+  description: "A fresh OI buildup base detected — level drawn at the OI-weighted price.",
   fields: [
     { key: "side", type: "string" },
     { key: "price", type: "number" },
@@ -127,6 +128,27 @@ const divergenceAlert = alert.define("oi.divergence", {
     { key: "price", type: "number" },
     { key: "div_type", type: "string" }
   ]
+})
+
+const offsideAlert = alert.define("oi.offside", {
+  title: "OI Buildup Offside",
+  description: "Price moved far from the latest OI buildup level — the opposite side is trapped.",
+  fields: [
+    { key: "side", type: "string" },
+    { key: "distance_pct", type: "number" },
+    { key: "price", type: "number" },
+    { key: "level", type: "number" }
+  ]
+})
+
+input.group("Offside", {
+  key: "oib_offside_group",
+  collapsible: true,
+  collapsed: false
+})
+const offsideThresholdPct = input.float("Offside alert threshold %", 1.5, {
+  key: "oib_offside_thresh", min: 0.1, max: 20.0,
+  description: "Fire oi.offside when price is this far (percent) from the latest buildup level"
 })
 
 input.tab("Display", { key: "oib_display_tab" })
@@ -155,14 +177,38 @@ const rawOiColor = input.color("Raw OI line", "#ffb300", {
   key: "oib_raw_oi_color"
 })
 
+input.group("Offside gauge", {
+  key: "oib_offside_display_group",
+  collapsible: true,
+  collapsed: false
+})
+const showOffsideGauge = input.bool("Show offside gauge", true, {
+  key: "oib_show_offside",
+  description: "Distance of price from the latest buildup level; positive = shorts trapped, negative = longs trapped"
+})
+const showLsRatio = input.bool("Show L/S ratio line", true, {
+  key: "oib_show_ls"
+})
+const showNetSplit = input.bool("Show net longs/shorts split", true, {
+  key: "oib_show_netsplit"
+})
+const shortsTrappedColor = input.color("Shorts trapped color", "#00e676", {
+  key: "oib_short_trapped",
+  description: "Price above the level — shorts are underwater (cover fuel)"
+})
+const longsTrappedColor = input.color("Longs trapped color", "#ff5252", {
+  key: "oib_long_trapped",
+  description: "Price below the level — longs are underwater (stop fuel)"
+})
+
 // ============================================================
 // PRESET-DERIVED PARAMETERS
 // ============================================================
 
 let activeWindow = 24
 let activeGrowthPct = 2.0
-let activeExitRatio = 0.35
-let activeMinBuildupBars = 3
+let activePurityPct = 60
+let activeMinAccumBars = 3
 let activeMergeTolerance = 6
 let activeMaxLevels = 6
 let activeDivWindow = 10
@@ -173,8 +219,8 @@ if (preset === "Balanced") {
 } else if (preset === "Strict") {
   activeWindow = 40
   activeGrowthPct = 3.0
-  activeExitRatio = 0.25
-  activeMinBuildupBars = 5
+  activePurityPct = 70
+  activeMinAccumBars = 5
   activeMergeTolerance = 4
   activeMaxLevels = 6
   activeDivWindow = 12
@@ -182,8 +228,8 @@ if (preset === "Balanced") {
 } else if (preset === "Aggressive") {
   activeWindow = 12
   activeGrowthPct = 1.2
-  activeExitRatio = 0.50
-  activeMinBuildupBars = 2
+  activePurityPct = 50
+  activeMinAccumBars = 2
   activeMergeTolerance = 10
   activeMaxLevels = 8
   activeDivWindow = 8
@@ -191,8 +237,8 @@ if (preset === "Balanced") {
 } else if (preset === "Custom") {
   activeWindow = customWindow
   activeGrowthPct = customGrowthPct
-  activeExitRatio = customExitRatio
-  activeMinBuildupBars = customMinBuildupBars
+  activePurityPct = customPurityPct
+  activeMinAccumBars = customMinAccumBars
   activeMergeTolerance = customMergeTolerance
   activeMaxLevels = customMaxLevels
   activeDivWindow = customDivWindow
@@ -221,6 +267,9 @@ const lowSeries = Series("oib.low")
 const closeSeries = Series("oib.close")
 const volumeSeries = Series("oib.volume")
 const unixSeries = Series("oib.unix")
+const buyVolSeries = Series("oib.buy_vol")
+const sellVolSeries = Series("oib.sell_vol")
+const deltaSeries = Series("oib.delta")
 const oiSeries = Series("oib.oi")
 const oiDeltaSeries = Series("oib.oi_delta")
 const oiDeltaAbsSeries = Series("oib.oi_delta_abs")
@@ -235,12 +284,14 @@ const buildupFreshSeries = Series("oib.fresh")
 // Level management (same pattern as DCP's activeLevels)
 let activeLevels = []
 let levelSequence = 0
-let lastAlertedZoneEnd = -1
+let lastAlertedLevelBar = -1
 
-// Buildup machine
-let activeBuildupStart = -1
-let activeBuildupPeak = 0
-let activeBuildupPeakBar = -1
+// Offside alert dedup: armed once price is back near the level,
+// fires once per fresh crossing of the offside threshold.
+let offsideArmed = false
+
+// Detection cooldown: one buildup = one level (until cumPos resets)
+let lastDetectionBar = -1
 
 // Divergence
 let lastSwingHigh = null
@@ -316,7 +367,7 @@ function levelAlreadyExists(price) {
   return false
 }
 
-function addLevel(priceBar, price, strength, endBar, oiGrowthPct) {
+function addLevel(priceBar, price, strength, endBar, baseInfo) {
   if (levelAlreadyExists(price)) return false
 
   // Clamp level count — drop oldest active levels
@@ -352,6 +403,7 @@ function addLevel(priceBar, price, strength, endBar, oiGrowthPct) {
     zIndex: 3
   })
 
+  const info = baseInfo || {}
   activeLevels.push({
     handle,
     price,
@@ -360,8 +412,23 @@ function addLevel(priceBar, price, strength, endBar, oiGrowthPct) {
     startBar: priceBar,
     endBar,
     active: true,
-    oiGrowthPct: oiGrowthPct || 0,
-    isLatest: true
+    isLatest: true,
+    // Buildup character snapshot (OI x Delta matrix at detection)
+    oiGrowthPct: info.oiGrowthPct || 0,
+    baseSide: info.baseSide || "Longs",   // dominant initiator of the buildup
+    purity: info.purity || 0,             // dominant-side share of accumulation volume
+    lsRatio: info.lsRatio || 1,           // L/S ratio over accumulation bars
+    netLongs: info.netLongs || 0,         // accumulated long-initiated delta
+    netShorts: info.netShorts || 0,       // accumulated short-initiated delta
+    accumBars: info.accumBars || 0,
+    // Live participation from the mark point forward
+    liveBuyVol: 0,
+    liveSellVol: 0,
+    liveNetLongs: 0,
+    liveNetShorts: 0,
+    // Offside state
+    offsidePct: 0,
+    maxOffsideAbs: 0
   })
 
   // All other levels are no longer the latest
@@ -383,6 +450,13 @@ function addLevel(priceBar, price, strength, endBar, oiGrowthPct) {
   }
 
   return true
+}
+
+function getLatestLevel() {
+  for (let i = activeLevels.length - 1; i >= 0; i--) {
+    if (activeLevels[i].active && activeLevels[i].isLatest) return activeLevels[i]
+  }
+  return null
 }
 
 function updateActiveLevels(bar) {
@@ -419,72 +493,126 @@ function updateActiveLevels(bar) {
 // BUILDUP DETECTION
 // ============================================================
 // Core concept from the thread: track where Open Interest *builds*.
-// A buildup zone starts when cumulative positive OI delta over the
-// trailing window crosses the growth threshold; it finalizes when
-// that growth "resets" (decays below the exit ratio). Each finalized
-// zone becomes a dynamic S/R level at the OI-weighted price.
+// No reset/finalize machine — when cumulative positive OI delta over
+// the trailing window *freshly crosses* the growth threshold, a level
+// is drawn immediately at the OI-weighted price. The OI x Delta matrix
+// then sizes the base: how much of the accumulation was long-initiated
+// vs short-initiated (netLongs / netShorts + L/S ratio).
 
-function processBuildup(bar) {
+function computeBase(startBar, endBar) {
+  // OI x Delta matrix over the accumulation window:
+  //   dOI > 0 & delta > 0  -> longs adding
+  //   dOI > 0 & delta < 0  -> shorts adding
+  // (covering/liquidating bars have dOI < 0 and are excluded — they
+  //  are not buildup.)
+  let buyVol = 0
+  let sellVol = 0
+  let longVol = 0
+  let shortVol = 0
+  let netLongs = 0
+  let netShorts = 0
+  let accumBars = 0
+
+  for (let i = startBar; i <= endBar; i++) {
+    const dOi = oiDeltaSeries[i]
+    if (!isFiniteNumber(dOi) || dOi <= 0) continue // only genuine OI-positive bars
+    accumBars++
+
+    const bv = buyVolSeries[i]
+    const sv = sellVolSeries[i]
+    const d = deltaSeries[i]
+
+    if (isFiniteNumber(bv)) buyVol += bv
+    if (isFiniteNumber(sv)) sellVol += sv
+
+    if (isFiniteNumber(d)) {
+      const vol = (isFiniteNumber(bv) && isFiniteNumber(sv)) ? bv + sv : 0
+      if (d > 0) {
+        longVol += vol
+        netLongs += d
+      } else if (d < 0) {
+        shortVol += vol
+        netShorts += -d
+      }
+    }
+  }
+
+  const totalVol = longVol + shortVol
+  const purity = totalVol > 0 ? Math.max(longVol, shortVol) / totalVol : 0
+  const baseSide = longVol >= shortVol ? "Longs" : "Shorts"
+  const lsRatio = sellVol > 0 ? buyVol / sellVol : (buyVol > 0 ? 10 : 1)
+
+  return {
+    buyVol,
+    sellVol,
+    longVol,
+    shortVol,
+    netLongs,
+    netShorts,
+    accumBars,
+    purity,
+    baseSide,
+    lsRatio
+  }
+}
+
+function checkBuildup(bar) {
   if (!oiSub) return
 
   const cum = cumPosDeltaSeries[bar]
   const oi = oiSeries[bar]
-  if (!isFiniteNumber(oi) || oi <= 0) return
+  if (!isFiniteNumber(oi) || oi <= 0 || !isFiniteNumber(cum)) return
 
-  if (activeBuildupStart < 0) {
-    // Look for a new buildup
-    if (cum / oi * 100 >= activeGrowthPct) {
-      activeBuildupStart = bar
-      activeBuildupPeak = cum
-      activeBuildupPeakBar = bar
-    }
-    return
-  }
-
-  // Active buildup — track peak
-  if (cum > activeBuildupPeak) {
-    activeBuildupPeak = cum
-    activeBuildupPeakBar = bar
-  }
-
-  // Finalize when OI growth resets (thread: "OI can completely reset")
-  // or after a safety cap so a stuck zone can never leak forever.
-  const zoneLength = bar - activeBuildupStart + 1
-  const reset = cum <= activeBuildupPeak * activeExitRatio
-  const safetyCap = zoneLength > activeWindow * 4
-  if (!reset && !safetyCap) return
-
-  const startBar = activeBuildupStart
-  const endBar = bar
-  const price = oiWeightedAvgPrice(startBar, endBar)
-
-  const baseOi = oiSeries[startBar]
-  const growthPct = (isFiniteNumber(baseOi) && baseOi > 0)
-    ? (oi - baseOi) / baseOi * 100
+  const growthPct = cum / oi * 100
+  const prevOi = bar > 0 ? oiSeries[bar - 1] : 0
+  const prevCum = bar > 0 ? cumPosDeltaSeries[bar - 1] : 0
+  const prevGrowthPct = (isFiniteNumber(prevOi) && prevOi > 0 && isFiniteNumber(prevCum))
+    ? prevCum / prevOi * 100
     : 0
-  const strength = clamp(
-    activeBuildupPeak / Math.max(0.0000001, baseOi) / (activeGrowthPct / 100),
-    0.5, 3.0
-  )
 
-  if (zoneLength >= activeMinBuildupBars) {
-    const created = addLevel(startBar, price, strength, endBar, growthPct)
-    if (created && enableAlerts && context.isRealtime && context.isLast &&
-        endBar !== lastAlertedZoneEnd) {
-      lastAlertedZoneEnd = endBar
+  // Fresh crossing only (rising edge). cumPos is a trailing-window sum,
+  // so once OI stops building it naturally decays below the threshold —
+  // the next episode re-crosses and triggers a new level.
+  const freshCross = growthPct >= activeGrowthPct && prevGrowthPct < activeGrowthPct
+  if (!freshCross) return
+
+  // Cooldown: keep at least one window between levels of one episode
+  if (bar - lastDetectionBar < activeWindow) return
+
+  // Zone = trailing window where OI built
+  const startBar = Math.max(0, bar - activeWindow + 1)
+  const price = oiWeightedAvgPrice(startBar, bar)
+  if (!isFiniteNumber(price)) return
+
+  // Base definition: enough duration + matrix-dominant direction.
+  const base = computeBase(startBar, bar)
+  if (base.accumBars < activeMinAccumBars) return
+  if (base.purity < activePurityPct / 100) return
+
+  const strength = clamp(growthPct / activeGrowthPct, 0.5, 3.0)
+  const created = addLevel(bar, price, strength, bar, {
+    oiGrowthPct: growthPct,
+    baseSide: base.baseSide,
+    purity: base.purity,
+    lsRatio: base.lsRatio,
+    netLongs: base.netLongs,
+    netShorts: base.netShorts,
+    accumBars: base.accumBars
+  })
+
+  if (created) {
+    lastDetectionBar = bar
+    if (enableAlerts && context.isRealtime && context.isLast &&
+        bar !== lastAlertedLevelBar) {
+      lastAlertedLevelBar = bar
       buildupAlert.trigger({
-        side: price <= closeSeries[endBar] ? "Support" : "Resistance",
+        side: base.baseSide,
         price: price,
         oi_growth_pct: growthPct,
-        bars: zoneLength
+        bars: base.accumBars
       })
     }
   }
-
-  // Reset the machine
-  activeBuildupStart = -1
-  activeBuildupPeak = 0
-  activeBuildupPeakBar = -1
 }
 
 // ============================================================
@@ -572,6 +700,12 @@ function onBar(index) {
   closeSeries[bar] = candles.close()
   volumeSeries[bar] = candles.volume()
   unixSeries[bar] = candles.unix()
+  // Tape (buy/sell volume + delta), guarded like DCP / Reversal Sniper
+  const buyVol = candles.buyVolume()
+  const sellVol = candles.sellVolume()
+  buyVolSeries[bar] = isFiniteNumber(buyVol) ? buyVol : 0
+  sellVolSeries[bar] = isFiniteNumber(sellVol) ? sellVol : 0
+  deltaSeries[bar] = buyVolSeries[bar] - sellVolSeries[bar]
 
   // ── OI + per-bar OI delta ──
   let oi = 0
@@ -591,8 +725,6 @@ function onBar(index) {
   oiDeltaAbsSeries[bar] = Math.abs(oiDelta)
 
   // ── Trailing-window cumulative POSITIVE OI delta ──
-  // This is the "buildup" measure: how much open interest was added
-  // in the last `activeWindow` bars, ignoring closes.
   const first = Math.max(0, bar - activeWindow + 1)
   let cumPos = 0
   for (let i = first; i <= bar; i++) {
@@ -618,21 +750,59 @@ function onBar(index) {
     if (isFiniteNumber(v) && v > oiMax) oiMax = v
   }
 
-  // ── Buildup detection ──
-  if (oiSub) processBuildup(bar)
+  // ── Buildup detection (rising edge — draws level immediately) ──
+  if (oiSub) checkBuildup(bar)
 
   // ── Fresh-buildup flag (colors the pane) ──
   buildupFreshSeries[bar] = 0
-  if (oiSub) {
-    if (activeBuildupStart >= 0 && bar >= activeBuildupStart) {
-      buildupFreshSeries[bar] = 1
-    } else if (activeBuildupPeak > 0 && cumPos >= activeBuildupPeak * 0.6) {
+  if (oiSub && isFiniteNumber(oi) && oi > 0 && isFiniteNumber(cumPos)) {
+    if (cumPos / oi * 100 >= activeGrowthPct) {
       buildupFreshSeries[bar] = 1
     }
   }
 
   // ── Advance / recolor existing levels every tick (intrabar touches) ──
   updateActiveLevels(bar)
+
+  // ── Latest-level live participation (new bars only) ──
+  const latest = getLatestLevel()
+  if (context.isNew && latest) {
+    const bv = buyVolSeries[bar]
+    const sv = sellVolSeries[bar]
+    if (isFiniteNumber(bv)) latest.liveBuyVol += bv
+    if (isFiniteNumber(sv)) latest.liveSellVol += sv
+    const d = deltaSeries[bar]
+    if (isFiniteNumber(d)) {
+      if (d > 0) latest.liveNetLongs += d
+      else if (d < 0) latest.liveNetShorts += -d
+    }
+  }
+
+  // ── Offside (every tick, latest level only) ──
+  if (latest) {
+    latest.offsidePct = (closeSeries[bar] - latest.price) / Math.max(0.0000001, latest.price) * 100
+    latest.maxOffsideAbs = Math.max(latest.maxOffsideAbs, Math.abs(latest.offsidePct))
+  }
+
+  // ── Offside alert: arm below threshold, fire on crossing (realtime only) ──
+  if (enableAlerts && context.isRealtime && context.isLast) {
+    if (latest) {
+      const abs = Math.abs(latest.offsidePct)
+      if (abs < offsideThresholdPct) {
+        offsideArmed = true
+      } else if (offsideArmed && abs >= offsideThresholdPct) {
+        offsideArmed = false
+        offsideAlert.trigger({
+          side: latest.offsidePct > 0 ? "Shorts" : "Longs",
+          distance_pct: latest.offsidePct,
+          price: closeSeries[bar],
+          level: latest.price
+        })
+      }
+    } else {
+      offsideArmed = false
+    }
+  }
 
   // ── OI/price divergence on new bars only ──
   if (context.isNew) {
@@ -661,6 +831,47 @@ function onBar(index) {
         width: 1,
         style: linestyle.solid,
         showLabel: true,
+        showValue: false
+      })
+    }
+
+    // ── Offside gauge: +price above level (shorts trapped) / − below (longs trapped) ──
+    if (showOffsideGauge && latest) {
+      const off = clamp(latest.offsidePct, -20, 20)
+      plotHistogram("Offside", off, {
+        color: off >= 0 ? shortsTrappedColor : longsTrappedColor,
+        showLabel: true,
+        showValue: true
+      })
+    }
+
+    // ── Live L/S ratio line (latest level, from the mark forward) ──
+    if (showLsRatio && latest) {
+      const ls = latest.liveSellVol > 0
+        ? clamp(latest.liveBuyVol / latest.liveSellVol, 0, 5)
+        : (latest.liveBuyVol > 0 ? 5 : 1)
+      plot("L/S ratio", ls, {
+        color: latest.baseSide === "Longs" ? supportColor : resistanceColor,
+        width: 1,
+        style: linestyle.solid,
+        showLabel: true,
+        showValue: true
+      })
+    }
+
+    // ── Net longs/shorts split (matrix-classified, live) ──
+    if (showNetSplit && latest) {
+      const total = latest.liveNetLongs + latest.liveNetShorts
+      const longPct = total > 0 ? latest.liveNetLongs / total * 100 : 0
+      const shortPct = total > 0 ? latest.liveNetShorts / total * 100 : 0
+      plotHistogram("Net longs", longPct, {
+        color: supportColor,
+        showLabel: false,
+        showValue: false
+      })
+      plotHistogram("Net shorts", -shortPct, {
+        color: resistanceColor,
+        showLabel: false,
         showValue: false
       })
     }

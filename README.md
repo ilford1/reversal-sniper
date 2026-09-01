@@ -8,14 +8,21 @@ reversal zones at delta-pressure impulse extremes.
 ### `OI Buildup.js`
 
 **OI Buildup S/R** — builds dynamic support/resistance levels from **where Open
-Interest builds**, not from price pivots. When cumulative positive OI delta over the
-trailing window crosses the growth threshold, a *buildup zone* starts; when the growth
-"resets" below the exit ratio, the zone finalizes into a horizontal level at the
-**OI-weighted average price**. Levels are colored support/resistance dynamically by
-the current price position, the latest buildup is highlighted in gold, and OI/price
-divergence (price HH with OI lower high, price LL with OI higher low) is flagged with
-markers and alerts. Requires an OI feed (Binance Futures, Bybit); degrades gracefully
-without it.
+Interest builds**, not from price pivots. A **buildup base** qualifies on three
+conditions: **magnitude** (cumulative positive OI delta / OI ≥ growth %), **duration**
+(at least `minAccumBars` genuinely OI-positive bars), and **directional purity**
+(an OI×Delta matrix classification: the dominant initiator — longs adding vs shorts
+adding — must account for ≥ `purity%` of accumulation volume, or no level is drawn).
+
+Detection is a rising edge with no reset machine: when growth freshly crosses the
+threshold a level is drawn immediately at the **OI-weighted average price**. The
+winning matrix class becomes the level's `baseSide`, and the classified deltas size
+the trapped pool (`netLongs` / `netShorts` + L/S ratio). Levels are colored
+support/resistance dynamically, the latest buildup is highlighted in gold, and an
+**offside gauge** tracks the latest level's distance from price (price above = shorts
+trapped, below = longs trapped) with live L/S and net-longs/shorts readouts. Alerts:
+`oi.buildup`, `oi.offside`, and OI/price divergence (`oi.divergence`). Requires an OI
+feed (Binance Futures, Bybit); degrades gracefully without it.
 
 ### `Reversal Sniper.js`
 

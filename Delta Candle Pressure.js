@@ -78,14 +78,21 @@ input.group("Candle appearance", {
 const showCandles = input.bool("Show pressure candles", true, {
   key: "show_candles"
 })
-const bearishPeakColor = input.color("Bearish peak", "#aa3a37", {
+const bearishPeakColor = input.color("Bearish peak", "#ff8a80", {
   key: "bearish_peak"
 })
-const neutralColor = input.color("Neutral", "#a9a9a9", {
-  key: "neutral_color",
+const bearishMidColor = input.color("Bearish mid", "#e53935", {
+  key: "bearish_mid",
   sameLine: true
 })
-const bullishPeakColor = input.color("Bullish peak", "#74a6e2", {
+const neutralColor = input.color("Neutral", "#a9a9a9", {
+  key: "neutral_color"
+})
+const bullishMidColor = input.color("Bullish mid", "#1e88e5", {
+  key: "bullish_mid",
+  sameLine: true
+})
+const bullishPeakColor = input.color("Bullish peak", "#82b1ff", {
   key: "bullish_peak",
   sameLine: true
 })
@@ -200,7 +207,9 @@ const exitFloorPercentile = 0.45
 
 const pressureScale = color.scale([
   [-100, bearishPeakColor],
+  [-50, bearishMidColor],
   [0, neutralColor],
+  [50, bullishMidColor],
   [100, bullishPeakColor]
 ], {
   space: color.space.rgb,

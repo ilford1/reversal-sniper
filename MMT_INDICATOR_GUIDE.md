@@ -141,10 +141,12 @@ This math is ported **verbatim** into Reversal Sniper — keep both in sync if y
 An impulse is "confirmed" only after it ends, but Reversal Sniper can also fire **early**
 on a *potential* extreme while the impulse is still running. Three paths exist:
 
-- **Historical / backfill** (`confirmedImpulse(bar, false)` — only runs when
-  `context.isNew && !isLiveBar`): `impulseEnd = bar − 2`, and `state[bar − 1]` must
+- **Historical / backfill** (`confirmedImpulse(bar, false)` — runs on **every** non-live
+  bar update, not gated by `context.isNew`): `impulseEnd = bar − 2`, and `state[bar − 1]` must
   differ from `state[impulseEnd]` (a state flip just happened). Marker is anchored at
-  the exact extreme bar so reload/backfill places it at the true reversal level.
+  the exact extreme bar so markers appear during initial load without needing a reload.
+  The dedup guard (`lastAlertedImpulseStart`) ensures one signal per impulse even though
+  this path may run repeatedly on the same bar.
 - **Live potential extreme** (`potentialExtreme(bar)` — runs on every tick when
   `context.isRealtime && context.isLast`): **no confirmation wait at all.** While an
   impulse is active on the last closed bar, the moment the *forming* bar pushes a NEW
@@ -232,7 +234,8 @@ Rolling delta candles colored by an adaptive pressure scale; wick-level projecti
 session CVD pane.
 
 - **Tabs:** Pressure (preset: Automatic / Scalp 1m / Scalp 5m / Custom + custom adaptation
-  params), Candle appearance (colors), Levels & alerts (wick levels, impulse alerts),
+  params), Candle appearance (5-stop blue→red spectrum: bearish peak / bearish mid / neutral /
+  bullish mid / bullish peak), Levels & alerts (wick levels, impulse alerts),
   CVD pane.
 - **Outputs:** overlaid pressure candles (`plotCandle`, `forceOverlay`), wick level
   `Line`s (advanced until touched), impulse-extreme `Marker`s, session CVD histogram +
@@ -307,33 +310,46 @@ draw the horizontal lines"). Requires an OI feed (`data.OI`); degrades gracefull
 just the pane (no levels/divergence) without it.
 
 - **Concept (from the Twitter thread):** track cumulative **positive** OI deltas over a
-  trailing window; when it crosses the growth threshold a *buildup zone* starts
-  ("bigboy added here"); when growth decays below the exit ratio the zone finalizes —
-  the thread's "OI can completely reset" moment. Each zone draws a horizontal `Line`
-  at the **OI-weighted average price** (typical price weighted by per-bar positive OI
-  delta), colored dynamically: support (green) when price is above, resistance (red)
-  when below; the **latest** buildup is gold + a square marker. Lines extend forward
-  until touched, then freeze (same Line-till-touch emulation as DCP's wick levels).
+  trailing window. A **buildup base** forms when three things hold on a bar: (1)
+  **magnitude** — `cumPos / OI ≥ growth%` (enough OI actually joined); (2) **duration** —
+  the window contains ≥ `minAccumBars` genuinely OI-positive bars (kills one-bar spikes);
+  (3) **directional purity** — via the **OI×Delta matrix**, the dominant initiator
+  (longs adding when ΔOI>0 & delta>0, shorts adding when ΔOI>0 & delta<0) accounts for ≥
+  `purity%` of accumulation volume. If neither side reaches purity the accumulation is
+  choppy → **no level**. The winning class becomes the level's `baseSide`, and the
+  classified deltas become the trapped-pool size (`netLongs` / `netShorts`).
+- **Detection (no reset machine):** `checkBuildup(bar)` triggers on the **rising edge**
+  (`growthPct` crosses `activeGrowthPct` fresh) and draws the level immediately at the
+  **OI-weighted average price** (typical price weighted by per-bar positive OI delta),
+  with an `activeWindow` cooldown between levels. `cumPos` is a trailing-window sum, so
+  it naturally decays once OI stops building — the next episode re-crosses and draws the
+  next level. No finalize/reset state needed.
 - **Tabs:** Detection (preset: Balanced / Strict / Aggressive / Custom — window, min OI
-  growth %, exit ratio, min buildup bars, merge tolerance, max levels, divergence swing
-  window, min OI Δ%), Levels (support/resistance/latest colors, widths, extend/freeze,
-  marker), Signals (divergence: OI/price swing divergence — price HH + OI lower high →
-  bearish marker, price LL + OI higher low → bullish; alerts: `oi.buildup` and
-  `oi.divergence`), Display (OI delta pane: histogram colored green while a buildup is
-  fresh, raw OI line, zero line).
-- **State machine:** `processBuildup(bar)` — idle → active when `cumPos/oi ≥ growth%`;
-  active → track peak; finalize when `cumPos ≤ peak × exitRatio` (or safety cap
-  `zoneLength > window×4`); `addLevel` + realtime alert, then reset. `checkSwing(bar)`
-  runs on new bars only (`cand = bar − window`, needs window forward bars), fires
-  `fireDivergence` markers/alerts with `lastDiverged*Bar` dedup.
+  growth %, **base purity %**, **min accumulation bars**, merge tolerance, max levels,
+  divergence swing window, min OI Δ%), Levels (support/resistance/latest colors, widths,
+  extend/freeze, marker), Signals (divergence: OI/price swing divergence — price HH + OI
+  lower high → bearish marker, price LL + OI higher low → bullish; alerts: `oi.buildup`,
+  `oi.divergence`, **`oi.offside`**; offside alert threshold %), Display (OI delta pane:
+  histogram colored green while a buildup is fresh, raw OI line, zero line; **Offside
+  gauge** group: offside % histogram, live L/S ratio line, net longs/shorts split,
+  shorts/longs-trapped colors).
+- **Offside gauge (latest level only):** `offsidePct = (close − level)/level × 100` —
+  price **above** the level = shorts trapped (green, cover fuel), price **below** =
+  longs trapped (red, stop fuel). `oi.offside` fires once per fresh crossing of the
+  offside threshold (arm below → fire above). Live L/S ratio and netLongs/netShorts
+  accumulate from the mark point forward. `checkSwing(bar)` runs on new bars only
+  (`cand = bar − window`, needs window forward bars), fires `fireDivergence`
+  markers/alerts with `lastDiverged*Bar` dedup.
 - **Outputs:** overlaid horizontal `Line`s + square markers (`forceOverlay`), OI delta
-  histogram + raw OI line + zero in its own pane.
-- **Alerts:** `oi.buildup` `{ side, price, oi_growth_pct, bars }` and `oi.divergence`
-  `{ direction, price, div_type }`, both realtime-only (`isRealtime && isLast`) with
-  dedup (`lastAlertedZoneEnd`, `lastDiverged*Bar`).
-- **Presets:** Balanced window 24 / growth 2.0% / exit 0.35 / min 3 bars / merge 6 ticks
-  / max 6 levels / div 10 bars / OI Δ 1.5%; Strict 40 / 3.0% / 0.25 / 5 / 4 / 6 / 12 /
-  2.5%; Aggressive 12 / 1.2% / 0.50 / 2 / 10 / 8 / 8 / 1.0%.
+  histogram + raw OI line + zero + offside gauge in its own pane.
+- **Alerts:** `oi.buildup` `{ side, price, oi_growth_pct, bars }` (fires at detection,
+  side = baseSide Longs/Shorts), `oi.offside` `{ side, distance_pct, price, level }`,
+  and `oi.divergence` `{ direction, price, div_type }`, all realtime-only
+  (`isRealtime && isLast`) with dedup (`lastAlertedLevelBar`, `offsideArmed`,
+  `lastDiverged*Bar`).
+- **Presets:** Balanced window 24 / growth 2.0% / purity 60% / min 3 bars / merge 6 ticks
+  / max 6 levels / div 10 bars / OI Δ 1.5%; Strict 40 / 3.0% / 70% / 5 / 4 / 6 / 12 /
+  2.5%; Aggressive 12 / 1.2% / 50% / 2 / 10 / 8 / 8 / 1.0%.
 
 ---
 
@@ -346,15 +362,17 @@ just the pane (no levels/divergence) without it.
 - **Feed guards:** always `typeof`-check `data.OI` / `data.STAT` / `buyCount` before subscribing/calling.
 - **`isNew` gating:** heavy evaluation (impulse, scoring, levels) runs only on new bars;
   light updates (level advancement, intrabar touches) run every tick. Exception:
-  Reversal Sniper's **live path** (`context.isRealtime && context.isLast`) runs
-  `potentialExtreme` on every tick — the forming bar pushing a new extreme *is* the
-  signal, so there is **no `bar − 2` (or `bar − 1`) confirmation wait** in realtime;
-  a state-flip fallback covers established extremes. Every tick that extends the
-  extreme is re-scored with the freshest forming-bar data (tape count, wick, …) —
+  Reversal Sniper's **historical path** (`confirmedImpulse(bar, false)`) runs on **every
+  non-live bar update** — not gated by `context.isNew` — so markers appear during
+  initial load without needing a chart reload. Dedup (`lastAlertedImpulseStart`) +
+  cooldown guarantee one signal per impulse. The **live path** (`context.isRealtime &&
+  context.isLast`) runs `potentialExtreme` on every tick — the forming bar pushing a new
+  extreme *is* the signal, so there is **no `bar − 2` (or `bar − 1`) confirmation wait**
+  in realtime; a state-flip fallback covers established extremes. Every tick that extends
+  the extreme is re-scored with the freshest forming-bar data (tape count, wick, …) —
   there is deliberately **no per-impulse "already evaluated" guard**, because the
   forming bar's data is partial early in the bar; dedup is **one signal per impulse**
-  (`lastAlertedImpulseStart`) + cooldown. The historical `bar − 2` path runs only on
-  backfill/non-live bars, so no "needs reload" markers appear live.
+  (`lastAlertedImpulseStart`) + cooldown.
 - **Alerts only in realtime:** wrap `alert.trigger` in `context.isRealtime && context.isLast`.
 - **Alerts not duplicated:** track `lastAlertedImpulseStart` to dedupe.
 - **Keep file under one indicator per file** (single `indicator()` call, single `onBar`).

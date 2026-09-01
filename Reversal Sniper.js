@@ -12,6 +12,10 @@ const strictness = input.select("Strictness", 0, {
   selectables: ["Balanced", "Strict", "Aggressive", "Custom"],
   description: "Balanced = moderate / Strict = fewer, higher-conviction / Aggressive = more signals. Custom exposes all thresholds."
 })
+const relaxImpulseGates = input.bool("Relax impulse gates", false, {
+  key: "relax_impulse_gates",
+  description: "Lowers min impulse length to 1 and climax threshold to 0.45 for earlier signals on young/weak impulses."
+})
 
 input.group("Custom thresholds", {
   key: "custom_thresholds",
@@ -337,7 +341,13 @@ const activeSensitivity = 100
 let deltaPeriod = 12
 let adaptationSpeed = 1.0
 let neutralExitRatio = 0.65
-const minImpulseClimax = 0.75
+let minImpulseClimax = 0.75
+
+// Relaxer override - overrides preset values when toggle is on
+if (relaxImpulseGates) {
+  activeMinImpulseLength = 1
+  minImpulseClimax = 0.45
+}
 
 const thresholdMultiplier = 100 / activeSensitivity
 const scalePercentile = 0.92
@@ -1197,9 +1207,9 @@ function onBar(index) {
   }
 
   // ── Signal evaluation ──
-  // Historical / backfill (context.isNew on a non-live bar): confirmed impulse
-  // with end = bar-2; marker anchored at the exact extreme bar so reload places
-  // markers at the true reversal levels.
+  // Historical / backfill (on every non-live bar update, not gated by
+  // context.isNew): confirmed impulse with end = bar-2; marker anchored at
+  // the exact extreme bar so markers appear without needing a chart reload.
   // Live (context.isRealtime && context.isLast): evaluated on every tick, with
   // NO bar-2 confirmation wait:
   //   1) potentialExtreme — the forming bar extends the impulse's extreme, so
@@ -1209,13 +1219,18 @@ function onBar(index) {
   // Both anchor at the current bar → render instantly, no reload.
   const isLiveBar = context.isRealtime && context.isLast
 
-  if (!context.isNew && !isLiveBar) return
-
-  if (context.isNew && !isLiveBar) {
+  // ── Historical / backfill path ──
+  // Runs on every non-live bar update so that markers are placed during
+  // initial load and persist without needing a reload. The marker key
+  // ("snip_{start}_{extremeBar}") and the dedup guard (lastAlertedImpulseStart)
+  // ensure each impulse fires at most one signal, even if this path runs
+  // multiple times on the same bar.
+  if (!isLiveBar) {
     const impulse = confirmedImpulse(bar, false)
     if (impulse) evaluateImpulse(bar, impulse, false)
   }
 
+  // ── Live path ──
   if (isLiveBar) {
     const potential = potentialExtreme(bar)
     if (potential) evaluateImpulse(bar, potential, true)
